@@ -94,12 +94,34 @@ def count_checkins_for_week(week: int) -> int:
 
 
 def team_already_checked_in(team_id: str, week: int) -> bool:
+    """Check-in trùng: cùng team + cùng tuần lịch (thứ 2-CN theo ICT)."""
+    from datetime import timezone, timedelta
+    ict = timezone(timedelta(hours=7))
+    now = datetime.now(ict)
+    # Thứ 2 đầu tuần, 00:00
+    monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+
     rows = _load_local()["Checkins"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_CHECKINS).get_all_records()
-    return any(row["team_id"] == team_id and int(row["week"]) == week for row in rows)
+    for row in rows:
+        if row["team_id"] != team_id:
+            continue
+        submitted = row.get("submitted_at", "")
+        if not submitted:
+            continue
+        try:
+            dt = datetime.fromisoformat(submitted)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_ict = dt.astimezone(ict)
+            if dt_ict >= monday:
+                return True
+        except (ValueError, TypeError):
+            continue
+    return False
 
 
-def save_checkin(team_id: str, team_name: str, week: int, summary_text: str, has_screenshot: bool, rank: int, points: int) -> dict:
-    row = {"id": None, "team_id": team_id, "team_name": team_name, "week": week, "submitted_at": datetime.utcnow().isoformat(), "rank": rank, "points": points, "summary_text": summary_text, "has_screenshot": "TRUE" if has_screenshot else "FALSE", "validated": "TRUE"}
+def save_checkin(team_id: str, team_name: str, week: int, summary_text: str, has_screenshot: bool, rank: int, points: int, member_count: int = 0) -> dict:
+    row = {"id": None, "team_id": team_id, "team_name": team_name, "week": week, "submitted_at": datetime.utcnow().isoformat(), "rank": rank, "points": points, "summary_text": summary_text, "has_screenshot": "TRUE" if has_screenshot else "FALSE", "validated": "TRUE", "member_count": member_count}
     if config.USE_LOCAL_STORAGE:
         data = _load_local()
         row["id"] = f"ci_{len(data['Checkins']) + 1}"
@@ -108,7 +130,7 @@ def save_checkin(team_id: str, team_name: str, week: int, summary_text: str, has
         return row
     ws = _get_sheet(config.SHEET_CHECKINS)
     row["id"] = f"ci_{len(ws.get_all_records()) + 1}"
-    ws.append_row([row["id"], team_id, team_name, week, row["submitted_at"], rank, points, summary_text, row["has_screenshot"], row["validated"]])
+    ws.append_row([row["id"], team_id, team_name, week, row["submitted_at"], rank, points, summary_text, row["has_screenshot"], row["validated"], member_count])
     return row
 
 
@@ -161,3 +183,42 @@ def compute_and_save_leaderboard() -> list[dict]:
 
 def get_leaderboard() -> list[dict]:
     return _load_local()["Leaderboard"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_LEADERBOARD).get_all_records()
+
+
+def update_organizer_details() -> None:
+    """Cập nhật sheet tổng hợp Meeting_Organizer_Details từ Teams + Checkins."""
+    if config.USE_LOCAL_STORAGE:
+        return
+
+    teams = get_all_teams()
+    checkin_rows = _get_sheet(config.SHEET_CHECKINS).get_all_records()
+    share_rows = _get_sheet(config.SHEET_SHARES).get_all_records()
+
+    try:
+        ws = _get_sheet("Meeting_Organizer_Details")
+    except Exception:
+        client = _get_client()
+        spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
+        ws = spreadsheet.add_worksheet(title="Meeting_Organizer_Details", rows=100, cols=7)
+        ws.append_row(["#", "Leader", "Tên Team / Tên cuộc họp", "Số member", "Check-in", "Score Action", "Tổng điểm"])
+
+    # Xoá data cũ, giữ header
+    ws.resize(rows=1)
+
+    for idx, team in enumerate(teams, 1):
+        tid = team["team_id"]
+        # Đếm check-in
+        team_checkins = [r for r in checkin_rows if r["team_id"] == tid and str(r["validated"]).upper() == "TRUE"]
+        checkin_count = len(team_checkins)
+        # Lấy số member gần nhất
+        latest_members = 0
+        if team_checkins:
+            latest = max(team_checkins, key=lambda r: r.get("submitted_at", ""))
+            latest_members = int(latest.get("member_count", 0) or 0)
+        # Tính điểm
+        ci_pts = min(sum(int(r["points"]) for r in team_checkins), config.MAX_CHECKIN_POINTS)
+        sh_pts = max((int(r["score"]) for r in share_rows if r["team_id"] == tid and str(r.get("score", "")).strip() != ""), default=0)
+        total = ci_pts + sh_pts
+
+        checkin_text = f"{checkin_count} lần" if checkin_count else "Chưa"
+        ws.append_row([idx, team.get("username", ""), team["team_name"], latest_members, checkin_text, sh_pts, total])

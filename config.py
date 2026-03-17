@@ -32,11 +32,11 @@ SPREADSHEET_ID: str | None = _get("SPREADSHEET_ID")
 USE_LOCAL_STORAGE: bool = (not SPREADSHEET_ID) or SPREADSHEET_ID == "your_spreadsheet_id_here" or not os.path.exists(GOOGLE_SHEETS_CREDENTIALS_FILE)
 LOCAL_DB_FILE: str = _get("LOCAL_DB_FILE", "local_data.json")
 
-# --- Anthropic / chấm điểm dự phòng ---
-ANTHROPIC_API_KEY: str | None = _get("ANTHROPIC_API_KEY")
+# --- OpenAI / chấm điểm dự phòng ---
+OPENAI_API_KEY: str | None = _get("OPENAI_API_KEY")
 # Dùng heuristic fallback khi chưa có API key thật
-USE_FAKE_AI: bool = (not ANTHROPIC_API_KEY) or ANTHROPIC_API_KEY.startswith("sk-ant-api03-...")
-ANTHROPIC_MODEL: str = _get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+USE_FAKE_AI: bool = (not OPENAI_API_KEY) or OPENAI_API_KEY == "sk-..."
+OPENAI_MODEL: str = _get("OPENAI_MODEL", "gpt-4o")
 
 # --- Cấu hình thử thách ---
 TOTAL_WEEKS: int = int(_get("TOTAL_WEEKS", "10"))
