@@ -52,15 +52,14 @@ def build_share_forward(
     username: str,
     is_new_best: bool,
 ) -> str:
-    badge = "🏆 Bài sharing tốt nhất mới của team!\n" if is_new_best else ""
-    week_text = f"tuần {week}" if week else "không gắn tuần"
+    badge = "\n🏆 Điểm cao nhất mới của team!" if is_new_best else ""
+    week_text = f"tuần {week}" if week else ""
     return (
-        f"💡 Team {team_name} vừa gửi bài sharing ({week_text}).\n"
-        f"- Điểm AI: {score}/100\n"
-        f"- Highlight: {highlight}\n"
-        f"- Người gửi: @{username}\n"
-        f"{badge}"
-        f"\nLeaderboard đã được cập nhật. Mời anh em quote và bàn luận 🔥"
+        f"💡 Team {team_name} vừa chia sẻ bài AI{' — ' + week_text if week_text else ''}.\n"
+        f"🎯 Điểm: {score}/100\n"
+        f"✨ {highlight}"
+        f"{badge}\n\n"
+        f"Muốn biết chi tiết? Hãy tự thử chia sẻ bài AI của team bạn! 🔥"
     )
 
 

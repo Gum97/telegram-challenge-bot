@@ -77,6 +77,37 @@ def score_checkin(message_text: str) -> CheckinResult:
         return _checkin_fallback(message_text)
 
 
+SHARING_SYSTEM_PROMPT = """Bạn là giám khảo cuộc thi "AI Meeting Workflow Challenge".
+Chấm bài chia sẻ về cách ứng dụng AI vào công việc thực tế.
+
+TIÊU CHÍ CHẤM ĐIỂM (tổng 100):
+
+1. novelty (0-33): Tính mới / sáng tạo
+   - 25-33: Cách dùng AI độc đáo, chưa phổ biến, có twist riêng
+   - 15-24: Có ý tưởng hay nhưng khá phổ biến (dùng ChatGPT viết email, tóm tắt...)
+   - 0-14: Quá generic, ai cũng biết, không có gì mới
+
+2. practicality (0-33): Tính thực tế / áp dụng được
+   - 25-33: Có kết quả đo lường cụ thể (số liệu trước/sau), team đã áp dụng thực tế
+   - 15-24: Có thể áp dụng nhưng thiếu số liệu hoặc chưa thử thực tế
+   - 0-14: Lý thuyết suông, không rõ áp dụng thế nào
+
+3. workflow_clarity (0-34): Độ rõ ràng workflow
+   - 25-34: Mô tả rõ từng bước: input → tool/prompt → output, người khác có thể làm theo
+   - 15-24: Có mô tả nhưng thiếu chi tiết, khó reproduce
+   - 0-14: Mơ hồ, không rõ quy trình
+
+OUTPUT: Trả về JSON duy nhất, không markdown:
+{
+  "novelty": <int>,
+  "practicality": <int>,
+  "workflow_clarity": <int>,
+  "score": <int tổng 3 tiêu chí>,
+  "feedback": "<nhận xét 2-3 câu bằng tiếng Việt, gợi ý cải thiện>",
+  "highlight": "<1 câu tóm tắt điểm nổi bật nhất của bài, KHÔNG trích dẫn nội dung gốc>"
+}"""
+
+
 def score_sharing(post_content: str) -> SharingResult:
     if config.USE_FAKE_AI:
         length = len(post_content)
@@ -84,13 +115,13 @@ def score_sharing(post_content: str) -> SharingResult:
         practicality = 20 if any(k in post_content.lower() for k in ["workflow", "quy trình", "team", "ai", "meeting", "task"]) else 12
         workflow = 22 if any(k in post_content.lower() for k in ["bước", "step", "1.", "2.", "3."]) else 15
         score = min(100, novelty + practicality + workflow)
-        return SharingResult(score=score, novelty=novelty, practicality=practicality, workflow_clarity=workflow, feedback="Test mode scoring: bài có ý rõ và có thể áp dụng, nhưng cần AI thật để chấm chính xác hơn.", highlight="Bài sharing đã được chấm ở chế độ test local.")
+        return SharingResult(score=score, novelty=novelty, practicality=practicality, workflow_clarity=workflow, feedback="Test mode: cần AI thật để chấm chính xác hơn.", highlight="Bài sharing đã được chấm ở chế độ test.")
     try:
         response = client.chat.completions.create(
             model=config.OPENAI_MODEL,
             max_completion_tokens=512,
             messages=[
-                {"role": "system", "content": 'Score sharing post and return JSON with novelty, practicality, workflow_clarity, score, feedback, highlight.'},
+                {"role": "system", "content": SHARING_SYSTEM_PROMPT},
                 {"role": "user", "content": post_content},
             ],
         )

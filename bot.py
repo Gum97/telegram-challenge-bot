@@ -15,7 +15,10 @@ import logging
 import re
 from datetime import time, timezone, timedelta
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram import (
+    BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
+    InlineKeyboardButton, InlineKeyboardMarkup, Update,
+)
 from telegram.constants import ChatType, ParseMode
 from telegram.error import BadRequest
 from telegram.ext import (
@@ -45,6 +48,8 @@ WAITING_TEAM_NAME = 0
 # ConversationHandler states — checkin
 WAITING_CHECKIN_PHOTO = 10
 WAITING_CHECKIN_CONTENT = 11
+# ConversationHandler states — share
+WAITING_SHARE_CONTENT = 20
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────
@@ -163,23 +168,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         # Xử lý trong checkin_button_handler (ConversationHandler)
         return
     elif data == "menu_share":
-        await _safe_edit(
-            query,
-            "💡 Hướng dẫn Chia sẻ bài AI:\n\n"
-            "Bước 1: Viết bài chia sẻ về cách bạn ứng dụng AI\n"
-            "   (tối thiểu 30 ký tự)\n"
-            "Bước 2: Gửi cho bot (trong DM) với lệnh /share\n\n"
-            "📌 Ví dụ:\n"
-            "/share #week_1\n"
-            "Tuần này team mình dùng ChatGPT để tạo unit test "
-            "tự động cho module thanh toán. Kết quả: coverage "
-            "tăng từ 40% lên 85%, phát hiện 3 bug tiềm ẩn.\n\n"
-            "🤖 Bot sẽ dùng AI chấm điểm bài của bạn theo 3 tiêu chí:\n"
-            "• Tính mới (33đ)\n"
-            "• Tính thực tế (33đ)\n"
-            "• Độ rõ workflow (34đ)",
-            reply_markup=kb,
-        )
+        # Xử lý trong share_button_handler (ConversationHandler)
+        return
     elif data == "menu_help":
         await _safe_edit(query, HELP_TEXT, reply_markup=kb)
 
@@ -448,16 +438,57 @@ async def cancel_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     return ConversationHandler.END
 
 
-# ── /share ───────────────────────────────────────────────────────────────
+# ── /share (ConversationHandler – 1 bước) ────────────────────────────────
 
-async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+async def share_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Bấm button 'Chia sẻ bài AI' → hướng dẫn + chờ nội dung."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    team = sheets.get_team_by_user(user.id)
+    if not team:
+        await _safe_edit(
+            query,
+            "⚠️ Bạn chưa đăng ký team. Bấm \"📝 Đăng ký team\" trước nhé.",
+            reply_markup=_main_menu_keyboard(registered=False),
+        )
+        return ConversationHandler.END
+
+    context.user_data["share_team"] = team
+    await _safe_edit(
+        query,
+        "💡 Chia sẻ bài AI\n\n"
+        "Viết bài chia sẻ cách team bạn ứng dụng AI vào công việc thực tế.\n"
+        "Kèm hashtag #share #week_<số>\n\n"
+        "🤖 AI chấm theo 3 tiêu chí:\n"
+        "• Tính mới (33đ) — cách dùng AI độc đáo, có twist riêng\n"
+        "• Tính thực tế (33đ) — có số liệu trước/sau, đã áp dụng thật\n"
+        "• Độ rõ workflow (34đ) — mô tả rõ input → tool → output\n\n"
+        "💡 Mẹo để điểm cao:\n"
+        "1. Nêu vấn đề cụ thể team gặp phải\n"
+        "2. Mô tả từng bước dùng AI (tool gì, prompt gì)\n"
+        "3. Kết quả đo lường được (số liệu trước vs sau)\n\n"
+        "📌 Ví dụ:\n"
+        "#share #week_1\n"
+        "Vấn đề: Viết test cho module thanh toán tốn 2 ngày.\n"
+        "Giải pháp: Dùng ChatGPT + prompt \"Viết unit test "
+        "cho hàm X, cover edge case Y\".\n"
+        "Kết quả: Coverage 40% → 85%, phát hiện 3 bug, "
+        "tiết kiệm 1.5 ngày.",
+    )
+    return WAITING_SHARE_CONTENT
+
+
+async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Lệnh /share → nếu có nội dung thì xử lý thẳng, không thì chờ."""
     message = update.effective_message
     if not message:
-        return
+        return ConversationHandler.END
 
     if not _is_dm(update):
         await message.reply_text("Vui lòng dùng /share trong tin nhắn riêng với bot!")
-        return
+        return ConversationHandler.END
 
     user = update.effective_user
     team = sheets.get_team_by_user(user.id)
@@ -466,16 +497,48 @@ async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "⚠️ Bạn chưa đăng ký team. Dùng /dangki trước nhé.",
             reply_markup=_main_menu_keyboard(registered=False),
         )
-        return
+        return ConversationHandler.END
+
+    context.user_data["share_team"] = team
 
     text = message.text or ""
     submission = re.sub(r"^/share\s*", "", text, flags=re.IGNORECASE).strip()
 
-    if not submission or len(submission) < 30:
-        await message.reply_text(
-            "💡 Gửi /share kèm nội dung bài chia sẻ đầy đủ (ít nhất 30 ký tự)."
+    if submission and len(submission) >= 30:
+        return await _process_share(update, context, submission)
+
+    # Chờ nội dung
+    await message.reply_text(
+        "💡 Gửi bài chia sẻ AI kèm hashtag #share #week_<số>\n"
+        "(tối thiểu 30 ký tự):",
+    )
+    return WAITING_SHARE_CONTENT
+
+
+async def share_receive_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Nhận nội dung bài chia sẻ."""
+    text = (update.message.text or "").strip()
+    if not text or len(text) < 30:
+        await update.message.reply_text(
+            "⚠️ Nội dung quá ngắn (tối thiểu 30 ký tự). Gửi lại:\n"
+            "Gửi /cancel để huỷ.",
         )
-        return
+        return WAITING_SHARE_CONTENT
+    return await _process_share(update, context, text)
+
+
+async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, submission: str) -> int:
+    """Xử lý bài chia sẻ (dùng chung cho cả flow button và /share)."""
+    message = update.effective_message
+    team = context.user_data.get("share_team")
+    if not team:
+        team = sheets.get_team_by_user(update.effective_user.id)
+    if not team:
+        await message.reply_text(
+            "⚠️ Bạn chưa đăng ký team.",
+            reply_markup=_main_menu_keyboard(registered=False),
+        )
+        return ConversationHandler.END
 
     week = _extract_week(submission) or 0
     prev_best = sheets.get_best_share_score(team["team_id"])
@@ -486,7 +549,8 @@ async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     except Exception as e:
         logger.error("Scoring failed: %s", e)
         await message.reply_text("❌ Chấm điểm AI thất bại. Vui lòng thử lại sau.")
-        return
+        context.user_data.pop("share_team", None)
+        return ConversationHandler.END
 
     sheets.save_share(
         team_id=team["team_id"],
@@ -522,6 +586,33 @@ async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             is_new_best=is_new_best,
         )
         await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text)
+
+    context.user_data.pop("share_team", None)
+    return ConversationHandler.END
+
+
+async def cancel_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    user = update.effective_user
+    registered = sheets.get_team_by_user(user.id) is not None
+    context.user_data.pop("share_team", None)
+    await update.message.reply_text(
+        "Đã huỷ chia sẻ.",
+        reply_markup=_main_menu_keyboard(registered),
+    )
+    return ConversationHandler.END
+
+
+async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Huỷ mọi flow đang chạy (dangki / checkin / share)."""
+    user = update.effective_user
+    registered = sheets.get_team_by_user(user.id) is not None
+    _checkin_cleanup(context)
+    context.user_data.pop("share_team", None)
+    await update.message.reply_text(
+        "Đã huỷ.",
+        reply_markup=_main_menu_keyboard(registered),
+    )
+    return ConversationHandler.END
 
 
 # ── /leaderboard (group only, auto-delete) ──────────────────────────────
@@ -581,6 +672,44 @@ async def weekly_leaderboard_job(context: ContextTypes.DEFAULT_TYPE) -> None:
         logger.error("Weekly leaderboard job error: %s", e)
 
 
+# ── Setup commands menu ──────────────────────────────────────────────────
+
+async def post_init(application: Application) -> None:
+    """Set command menu cho DM và Group khi bot khởi động."""
+    bot = application.bot
+
+    # Commands cho DM
+    await bot.set_my_commands(
+        commands=[
+            BotCommand("start", "Bắt đầu bot"),
+            BotCommand("dangki", "Đăng ký tên team"),
+            BotCommand("checkin", "Check-in tuần"),
+            BotCommand("share", "Chia sẻ bài AI"),
+            BotCommand("help", "Hướng dẫn sử dụng"),
+        ],
+        scope=BotCommandScopeAllPrivateChats(),
+    )
+
+    # Commands cho Group
+    await bot.set_my_commands(
+        commands=[
+            BotCommand("leaderboard", "Xem bảng xếp hạng"),
+        ],
+        scope=BotCommandScopeAllGroupChats(),
+    )
+
+    # Default commands (fallback)
+    await bot.set_my_commands(
+        commands=[
+            BotCommand("start", "Bắt đầu bot"),
+            BotCommand("leaderboard", "Xem bảng xếp hạng"),
+            BotCommand("help", "Hướng dẫn sử dụng"),
+        ],
+    )
+
+    logger.info("Đã set command menu cho DM và Group.")
+
+
 # ── Main ─────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -589,34 +718,27 @@ def main() -> None:
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
-    app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 
-    # ConversationHandler cho đăng ký team (cả lệnh /dangki và button)
-    dangki_conv = ConversationHandler(
+    # ConversationHandler duy nhất — gộp dangki + checkin + share
+    # Cho phép chuyển flow tự do (bấm button khác → tự cancel flow cũ)
+    conv = ConversationHandler(
         entry_points=[
-            CommandHandler("dangki", cmd_dangki),
             CallbackQueryHandler(dangki_button_handler, pattern="^menu_dangki$"),
-        ],
-        states={
-            WAITING_TEAM_NAME: [
-                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_team_name),
-            ],
-        },
-        fallbacks=[CommandHandler("cancel", cancel_dangki)],
-        per_message=False,
-    )
-
-    # ConversationHandler cho check-in (button và /checkin)
-    checkin_conv = ConversationHandler(
-        entry_points=[
             CallbackQueryHandler(checkin_button_handler, pattern="^menu_checkin$"),
+            CallbackQueryHandler(share_button_handler, pattern="^menu_share$"),
+            CommandHandler("dangki", cmd_dangki),
             CommandHandler("checkin", cmd_checkin),
+            CommandHandler("share", cmd_share),
             MessageHandler(
                 filters.PHOTO & filters.CaptionRegex(r"(?i)^/checkin"),
                 cmd_checkin,
             ),
         ],
         states={
+            WAITING_TEAM_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_team_name),
+            ],
             WAITING_CHECKIN_PHOTO: [
                 MessageHandler(filters.PHOTO, checkin_receive_photo),
                 MessageHandler(filters.TEXT & ~filters.COMMAND, checkin_photo_fallback),
@@ -624,16 +746,26 @@ def main() -> None:
             WAITING_CHECKIN_CONTENT: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, checkin_receive_content),
             ],
+            WAITING_SHARE_CONTENT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, share_receive_content),
+            ],
         },
-        fallbacks=[CommandHandler("cancel", cancel_checkin)],
+        fallbacks=[
+            # Cho phép chuyển flow bằng button/command khi đang ở flow khác
+            CallbackQueryHandler(dangki_button_handler, pattern="^menu_dangki$"),
+            CallbackQueryHandler(checkin_button_handler, pattern="^menu_checkin$"),
+            CallbackQueryHandler(share_button_handler, pattern="^menu_share$"),
+            CommandHandler("dangki", cmd_dangki),
+            CommandHandler("checkin", cmd_checkin),
+            CommandHandler("share", cmd_share),
+            CommandHandler("cancel", cancel_conversation),
+        ],
         per_message=False,
     )
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
-    app.add_handler(dangki_conv)
-    app.add_handler(checkin_conv)
-    app.add_handler(CommandHandler("share", cmd_share))
+    app.add_handler(conv)
     app.add_handler(CommandHandler("leaderboard", cmd_leaderboard))
     app.add_handler(CallbackQueryHandler(button_handler))
 
