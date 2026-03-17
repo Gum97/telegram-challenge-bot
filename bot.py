@@ -161,16 +161,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     kb = _main_menu_keyboard(registered)
 
     data = query.data
-    if data == "menu_dangki":
-        # Xử lý trong dangki_button_handler (ConversationHandler)
-        return
-    elif data == "menu_checkin":
-        # Xử lý trong checkin_button_handler (ConversationHandler)
-        return
-    elif data == "menu_share":
-        # Xử lý trong share_button_handler (ConversationHandler)
-        return
-    elif data == "menu_help":
+    # menu_dangki, menu_checkin, menu_share → xử lý bởi ConversationHandler
+    if data == "menu_help":
         await _safe_edit(query, HELP_TEXT, reply_markup=kb)
 
 
@@ -213,8 +205,8 @@ async def cmd_dangki(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
 async def receive_team_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     team_name = update.message.text.strip()
-    if len(team_name) < 2:
-        await update.message.reply_text("⚠️ Tên team quá ngắn. Vui lòng nhập lại:")
+    if len(team_name) < 2 or len(team_name) > 50:
+        await update.message.reply_text("⚠️ Tên team phải từ 2-50 ký tự. Vui lòng nhập lại:")
         return WAITING_TEAM_NAME
 
     user = update.effective_user
@@ -386,18 +378,24 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
     rank = sheets.count_checkins_for_week(week) + 1
     points = config.CHECKIN_POINTS
 
-    sheets.save_checkin(
-        team_id=team["team_id"],
-        team_name=team["team_name"],
-        week=week,
-        summary_text=submission[:1000],
-        has_screenshot=True,
-        rank=rank,
-        points=points,
-        member_count=member_count,
-    )
-    sheets.compute_and_save_leaderboard()
-    sheets.update_organizer_details()
+    try:
+        sheets.save_checkin(
+            team_id=team["team_id"],
+            team_name=team["team_name"],
+            week=week,
+            summary_text=submission[:1000],
+            has_screenshot=True,
+            rank=rank,
+            points=points,
+            member_count=member_count,
+        )
+        sheets.compute_and_save_leaderboard()
+        sheets.update_organizer_details()
+    except Exception as e:
+        logger.error("Failed to save checkin: %s", e)
+        await message.reply_text("❌ Lỗi khi lưu check-in. Vui lòng thử lại sau.")
+        _checkin_cleanup(context)
+        return ConversationHandler.END
 
     await message.reply_text(
         f"✅ Check-in thành công!\n\n"
@@ -409,14 +407,17 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
     )
 
     if config.GROUP_CHAT_ID:
-        forward_text = lb.build_checkin_forward(
-            team_name=team["team_name"],
-            week=week,
-            rank=rank,
-            points=points,
-            username=_username(update),
-        )
-        await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text)
+        try:
+            forward_text = lb.build_checkin_forward(
+                team_name=team["team_name"],
+                week=week,
+                rank=rank,
+                points=points,
+                username=_username(update),
+            )
+            await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text)
+        except Exception as e:
+            logger.error("Failed to forward checkin to group: %s", e)
 
     _checkin_cleanup(context)
     return ConversationHandler.END
@@ -546,21 +547,20 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
     await message.reply_text("🤖 Đang dùng AI để chấm bài của bạn...")
     try:
         result = scoring.score_sharing(submission)
+        sheets.save_share(
+            team_id=team["team_id"],
+            team_name=team["team_name"],
+            week=week,
+            content=submission[:2000],
+            score=result.score,
+            feedback=result.feedback,
+        )
+        sheets.compute_and_save_leaderboard()
     except Exception as e:
-        logger.error("Scoring failed: %s", e)
-        await message.reply_text("❌ Chấm điểm AI thất bại. Vui lòng thử lại sau.")
+        logger.error("Scoring/save failed: %s", e)
+        await message.reply_text("❌ Chấm điểm hoặc lưu thất bại. Vui lòng thử lại sau.")
         context.user_data.pop("share_team", None)
         return ConversationHandler.END
-
-    sheets.save_share(
-        team_id=team["team_id"],
-        team_name=team["team_name"],
-        week=week,
-        content=submission[:2000],
-        score=result.score,
-        feedback=result.feedback,
-    )
-    sheets.compute_and_save_leaderboard()
 
     is_new_best = result.score > prev_best
     result_text = (
@@ -576,16 +576,19 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
     await message.reply_text(result_text, reply_markup=_main_menu_keyboard(registered=True))
 
     if config.GROUP_CHAT_ID:
-        forward_text = lb.build_share_forward(
-            team_name=team["team_name"],
-            week=week,
-            score=result.score,
-            highlight=result.highlight,
-            feedback=result.feedback,
-            username=_username(update),
-            is_new_best=is_new_best,
-        )
-        await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text)
+        try:
+            forward_text = lb.build_share_forward(
+                team_name=team["team_name"],
+                week=week,
+                score=result.score,
+                highlight=result.highlight,
+                feedback=result.feedback,
+                username=_username(update),
+                is_new_best=is_new_best,
+            )
+            await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text)
+        except Exception as e:
+            logger.error("Failed to forward share to group: %s", e)
 
     context.user_data.pop("share_team", None)
     return ConversationHandler.END
@@ -675,8 +678,21 @@ async def weekly_leaderboard_job(context: ContextTypes.DEFAULT_TYPE) -> None:
 # ── Setup commands menu ──────────────────────────────────────────────────
 
 async def post_init(application: Application) -> None:
-    """Set command menu cho DM và Group khi bot khởi động."""
+    """Validate kết nối + set command menu khi bot khởi động."""
     bot = application.bot
+
+    # Validate bot token
+    me = await bot.get_me()
+    logger.info("Bot initialized: @%s", me.username)
+
+    # Validate Google Sheets nếu đang dùng
+    if not config.USE_LOCAL_STORAGE:
+        try:
+            sheets._get_sheet(config.SHEET_TEAMS)
+            logger.info("Google Sheets connection OK")
+        except Exception as e:
+            logger.error("Google Sheets connection FAILED: %s", e)
+            raise
 
     # Commands cho DM
     await bot.set_my_commands(

@@ -155,30 +155,37 @@ def save_share(team_id: str, team_name: str, week: int, content: str, score: int
 
 
 def compute_and_save_leaderboard() -> list[dict]:
-    teams = get_all_teams()
-    if config.USE_LOCAL_STORAGE:
-        data = _load_local()
-        checkin_rows = data["Checkins"]
-        share_rows = data["Shares"]
-    else:
-        checkin_rows = _get_sheet(config.SHEET_CHECKINS).get_all_records()
-        share_rows = _get_sheet(config.SHEET_SHARES).get_all_records()
+    try:
+        teams = get_all_teams()
+        if config.USE_LOCAL_STORAGE:
+            data = _load_local()
+            checkin_rows = data["Checkins"]
+            share_rows = data["Shares"]
+        else:
+            checkin_rows = _get_sheet(config.SHEET_CHECKINS).get_all_records()
+            share_rows = _get_sheet(config.SHEET_SHARES).get_all_records()
 
-    standings = []
-    for team in teams:
-        tid = team["team_id"]
-        ci_pts = min(sum(int(r["points"]) for r in checkin_rows if r["team_id"] == tid and str(r["validated"]).upper() == "TRUE"), config.MAX_CHECKIN_POINTS)
-        sh_pts = max((int(r["score"]) for r in share_rows if r["team_id"] == tid and str(r.get("score", "")).strip() != ""), default=0)
-        standings.append({"team_id": tid, "team_name": team["team_name"], "checkin_points": ci_pts, "sharing_points": sh_pts, "total_points": ci_pts + sh_pts, "last_updated": datetime.utcnow().isoformat()})
+        standings = []
+        for team in teams:
+            tid = team["team_id"]
+            ci_pts = min(sum(int(r.get("points", 0)) for r in checkin_rows if r["team_id"] == tid and str(r.get("validated", "")).upper() == "TRUE"), config.MAX_CHECKIN_POINTS)
+            sh_pts = max((int(r["score"]) for r in share_rows if r["team_id"] == tid and str(r.get("score", "")).strip() != ""), default=0)
+            standings.append({"team_id": tid, "team_name": team["team_name"], "checkin_points": ci_pts, "sharing_points": sh_pts, "total_points": ci_pts + sh_pts, "last_updated": datetime.utcnow().isoformat()})
 
-    standings.sort(key=lambda x: (x["total_points"], x["sharing_points"], x["checkin_points"]), reverse=True)
-    if config.USE_LOCAL_STORAGE:
-        data = _load_local(); data["Leaderboard"] = standings; _save_local(data)
-    else:
-        lb_ws = _get_sheet(config.SHEET_LEADERBOARD); lb_ws.resize(rows=1)
-        for s in standings:
-            lb_ws.append_row([s["team_id"], s["team_name"], s["checkin_points"], s["sharing_points"], s["total_points"], s["last_updated"]])
-    return standings
+        standings.sort(key=lambda x: (x["total_points"], x["sharing_points"], x["checkin_points"]), reverse=True)
+        if config.USE_LOCAL_STORAGE:
+            data = _load_local()
+            data["Leaderboard"] = standings
+            _save_local(data)
+        else:
+            lb_ws = _get_sheet(config.SHEET_LEADERBOARD)
+            lb_ws.resize(rows=1)
+            for s in standings:
+                lb_ws.append_row([s["team_id"], s["team_name"], s["checkin_points"], s["sharing_points"], s["total_points"], s["last_updated"]])
+        return standings
+    except Exception as e:
+        logger.error("compute_and_save_leaderboard failed: %s", e)
+        return get_leaderboard()  # Trả về dữ liệu cũ nếu lỗi
 
 
 def get_leaderboard() -> list[dict]:

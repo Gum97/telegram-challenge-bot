@@ -64,11 +64,14 @@ def score_checkin(message_text: str) -> CheckinResult:
         response = client.chat.completions.create(
             model=config.OPENAI_MODEL,
             max_completion_tokens=256,
+            timeout=15,
             messages=[
                 {"role": "system", "content": 'Validate checkin and return JSON {"valid":bool,"reason":string}. Require #post #week_<x> and numeric summary. Screenshot is checked separately.'},
                 {"role": "user", "content": message_text},
             ],
         )
+        if not response.choices:
+            raise RuntimeError("AI returned empty response")
         raw = re.sub(r"^```json\s*|```$", "", response.choices[0].message.content.strip(), flags=re.MULTILINE).strip()
         data = json.loads(raw)
         return CheckinResult(valid=bool(data["valid"]), reason=data.get("reason", ""))
@@ -120,11 +123,14 @@ def score_sharing(post_content: str) -> SharingResult:
         response = client.chat.completions.create(
             model=config.OPENAI_MODEL,
             max_completion_tokens=512,
+            timeout=30,
             messages=[
                 {"role": "system", "content": SHARING_SYSTEM_PROMPT},
                 {"role": "user", "content": post_content},
             ],
         )
+        if not response.choices:
+            raise RuntimeError("AI returned empty response")
         raw = re.sub(r"^```json\s*|```$", "", response.choices[0].message.content.strip(), flags=re.MULTILINE).strip()
         data = json.loads(raw)
         return SharingResult(score=int(data["score"]), novelty=int(data["novelty"]), practicality=int(data["practicality"]), workflow_clarity=int(data["workflow_clarity"]), feedback=data["feedback"], highlight=data["highlight"])
