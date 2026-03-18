@@ -457,26 +457,35 @@ async def share_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         return ConversationHandler.END
 
     context.user_data["share_team"] = team
+    prev_best = sheets.get_best_share_score(team["team_id"])
+    week_count = sheets.count_shares_this_week(team["team_id"])
+    remaining = max(0, config.MAX_SHARES_PER_WEEK - week_count)
+
+    urgency = ""
+    if prev_best == 0:
+        urgency = "🚀 Team chưa có bài nào — nộp ngay để không bị bỏ lại!\n\n"
+    elif prev_best < 60:
+        urgency = f"⚡ Bài tốt nhất của team: {prev_best}/100 — còn {remaining} slot tuần này. Thử một vấn đề AI khác để nâng điểm!\n\n"
+    else:
+        urgency = f"✨ Bài tốt nhất: {prev_best}/100. Còn {remaining} slot tuần này — chia sẻ thêm vấn đề AI khác!\n\n"
+
     await _safe_edit(
         query,
         "💡 Chia sẻ bài AI\n\n"
-        "Viết bài chia sẻ cách team bạn ứng dụng AI vào công việc thực tế.\n"
+        + urgency +
+        "Viết bài chia sẻ cách team ứng dụng AI vào công việc thực tế.\n"
         "Kèm hashtag #share #week_<số>\n\n"
+        f"⚠️ Tối đa {config.MAX_SHARES_PER_WEEK} bài/tuần, mỗi bài phải là vấn đề AI khác nhau.\n"
+        "Điểm cao nhất trong tuần được tính vào BXH.\n\n"
         "🤖 AI chấm theo 3 tiêu chí:\n"
         "• Tính mới (33đ) — cách dùng AI độc đáo, có twist riêng\n"
         "• Tính thực tế (33đ) — có số liệu trước/sau, đã áp dụng thật\n"
         "• Độ rõ workflow (34đ) — mô tả rõ input → tool → output\n\n"
-        "💡 Mẹo để điểm cao:\n"
-        "1. Nêu vấn đề cụ thể team gặp phải\n"
-        "2. Mô tả từng bước dùng AI (tool gì, prompt gì)\n"
-        "3. Kết quả đo lường được (số liệu trước vs sau)\n\n"
         "📌 Ví dụ:\n"
         "#share #week_1\n"
         "Vấn đề: Viết test cho module thanh toán tốn 2 ngày.\n"
-        "Giải pháp: Dùng ChatGPT + prompt \"Viết unit test "
-        "cho hàm X, cover edge case Y\".\n"
-        "Kết quả: Coverage 40% → 85%, phát hiện 3 bug, "
-        "tiết kiệm 1.5 ngày.",
+        "Giải pháp: Dùng ChatGPT + prompt \"Viết unit test cho hàm X, cover edge case Y\".\n"
+        "Kết quả: Coverage 40% → 85%, phát hiện 3 bug, tiết kiệm 1.5 ngày.",
     )
     return WAITING_SHARE_CONTENT
 
@@ -509,9 +518,21 @@ async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         return await _process_share(update, context, submission)
 
     # Chờ nội dung
+    prev_best = sheets.get_best_share_score(team["team_id"])
+    week_count = sheets.count_shares_this_week(team["team_id"])
+    remaining = max(0, config.MAX_SHARES_PER_WEEK - week_count)
+
+    if prev_best == 0:
+        hint = f"🚀 Team chưa có bài nào! Nộp ngay để ghi điểm. Còn {remaining} slot tuần này.\n"
+    elif prev_best < 60:
+        hint = f"⚡ Bài tốt nhất: {prev_best}/100 — thử vấn đề AI khác để nâng điểm! Còn {remaining} slot.\n"
+    else:
+        hint = f"✨ Bài tốt nhất: {prev_best}/100. Còn {remaining} slot tuần này.\n"
+
     await message.reply_text(
-        "💡 Gửi bài chia sẻ AI kèm hashtag #share #week_<số>\n"
-        "(tối thiểu 30 ký tự):",
+        "💡 Gửi bài chia sẻ AI kèm hashtag #share #week_<số> (tối thiểu 30 ký tự):\n\n"
+        + hint
+        + f"⚠️ Mỗi bài phải là vấn đề AI khác nhau (tối đa {config.MAX_SHARES_PER_WEEK} bài/tuần).",
     )
     return WAITING_SHARE_CONTENT
 
@@ -542,6 +563,34 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
         return ConversationHandler.END
 
     week = _extract_week(submission) or 0
+
+    # Kiểm tra giới hạn và trùng chủ đề
+    this_week_shares = sheets.get_shares_this_week(team["team_id"])
+    week_count = len(this_week_shares)
+
+    if week_count >= config.MAX_SHARES_PER_WEEK:
+        await message.reply_text(
+            f"⚠️ Tuần này team đã nộp {week_count} bài (tối đa {config.MAX_SHARES_PER_WEEK} chủ đề AI khác nhau/tuần).\n"
+            "Hãy quay lại tuần sau nhé!",
+            reply_markup=_main_menu_keyboard(registered=True),
+        )
+        context.user_data.pop("share_team", None)
+        return ConversationHandler.END
+
+    if this_week_shares:
+        await message.reply_text("🔍 Đang kiểm tra chủ đề...")
+        prev_contents = [r.get("content", "") for r in this_week_shares]
+        is_dup, dup_reason = scoring.is_duplicate_topic(submission, prev_contents)
+        if is_dup:
+            await message.reply_text(
+                f"⚠️ Bài này có vẻ trùng chủ đề AI với bài đã nộp tuần này.\n"
+                f"💬 {dup_reason}\n\n"
+                f"Mỗi bài phải là một vấn đề / giải pháp AI khác nhau. "
+                f"Còn {config.MAX_SHARES_PER_WEEK - week_count} slot trong tuần này.",
+            )
+            context.user_data.pop("share_team", None)
+            return ConversationHandler.END
+
     prev_best = sheets.get_best_share_score(team["team_id"])
 
     await message.reply_text("🤖 Đang dùng AI để chấm bài của bạn...")

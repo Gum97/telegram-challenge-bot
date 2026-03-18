@@ -111,6 +111,53 @@ OUTPUT: Trả về JSON duy nhất, không markdown:
 }"""
 
 
+DUPLICATE_SYSTEM_PROMPT = """Bạn kiểm tra xem bài mới có trùng chủ đề AI với các bài đã nộp tuần này không.
+Trùng chủ đề = cùng vấn đề / use-case AI (ví dụ: đều dùng AI viết test, đều dùng AI tóm tắt meeting...).
+Khác chủ đề = vấn đề khác nhau dù cùng tool (ví dụ: AI viết test vs AI phân tích dữ liệu).
+Trả về JSON duy nhất: {"is_duplicate": bool, "reason": "<giải thích ngắn gọn bằng tiếng Việt>"}"""
+
+
+def is_duplicate_topic(new_content: str, previous_contents: list[str]) -> tuple[bool, str]:
+    """Kiểm tra bài mới có trùng chủ đề AI với các bài đã nộp tuần này không.
+    Trả về (is_duplicate, reason).
+    """
+    if not previous_contents:
+        return False, ""
+
+    if config.USE_FAKE_AI:
+        # Heuristic: kiểm tra overlap keyword đơn giản
+        new_words = set(re.findall(r"\w+", new_content.lower()))
+        for prev in previous_contents:
+            prev_words = set(re.findall(r"\w+", prev.lower()))
+            overlap = len(new_words & prev_words) / max(len(new_words | prev_words), 1)
+            if overlap > 0.6:
+                return True, "Bài mới có nội dung rất giống bài đã nộp (chế độ test)."
+        return False, ""
+
+    prev_summary = "\n---\n".join(
+        f"Bài {i+1}: {c[:400]}" for i, c in enumerate(previous_contents)
+    )
+    user_msg = f"Các bài đã nộp tuần này:\n{prev_summary}\n\n---\nBài mới:\n{new_content[:400]}"
+    try:
+        response = client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            max_completion_tokens=128,
+            timeout=15,
+            messages=[
+                {"role": "system", "content": DUPLICATE_SYSTEM_PROMPT},
+                {"role": "user", "content": user_msg},
+            ],
+        )
+        if not response.choices:
+            return False, ""
+        raw = re.sub(r"^```json\s*|```$", "", response.choices[0].message.content.strip(), flags=re.MULTILINE).strip()
+        data = json.loads(raw)
+        return bool(data["is_duplicate"]), data.get("reason", "")
+    except Exception as e:
+        logger.error("is_duplicate_topic error: %s", e)
+        return False, ""  # Nếu lỗi → cho phép qua để không block user
+
+
 def score_sharing(post_content: str) -> SharingResult:
     if config.USE_FAKE_AI:
         length = len(post_content)

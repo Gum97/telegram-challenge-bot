@@ -134,6 +134,36 @@ def save_checkin(team_id: str, team_name: str, week: int, summary_text: str, has
     return row
 
 
+def get_shares_this_week(team_id: str) -> list[dict]:
+    """Lấy danh sách các bài share của team trong tuần hiện tại (theo ICT)."""
+    from datetime import timezone, timedelta
+    ict = timezone(timedelta(hours=7))
+    now = datetime.now(ict)
+    monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    rows = _load_local()["Shares"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_SHARES).get_all_records()
+    result = []
+    for row in rows:
+        if row["team_id"] != team_id:
+            continue
+        submitted = row.get("submitted_at", "")
+        if not submitted:
+            continue
+        try:
+            dt = datetime.fromisoformat(submitted)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt.astimezone(ict) >= monday:
+                result.append(row)
+        except (ValueError, TypeError):
+            continue
+    return result
+
+
+def count_shares_this_week(team_id: str) -> int:
+    return len(get_shares_this_week(team_id))
+
+
 def get_best_share_score(team_id: str) -> int:
     rows = _load_local()["Shares"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_SHARES).get_all_records()
     scores = [int(r["score"]) for r in rows if r["team_id"] == team_id and str(r.get("score", "")).strip() != ""]

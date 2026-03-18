@@ -42,6 +42,7 @@ OPENAI_MODEL: str = _get("OPENAI_MODEL", "gpt-4o")
 TOTAL_WEEKS: int = int(_get("TOTAL_WEEKS", "10"))
 CHECKIN_POINTS: int = int(_get("CHECKIN_POINTS", "10"))
 MAX_CHECKIN_POINTS: int = CHECKIN_POINTS * TOTAL_WEEKS  # Tổng điểm check-in tối đa
+MAX_SHARES_PER_WEEK: int = int(_get("MAX_SHARES_PER_WEEK", "3"))  # Tối đa 3 lần share/tuần/team
 
 # --- Tên tab trong Google Sheets ---
 SHEET_TEAMS = "Teams"

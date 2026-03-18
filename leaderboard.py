@@ -35,11 +35,10 @@ def format_leaderboard(standings: list[dict], week: Optional[int] = None) -> str
 
 def build_checkin_forward(team_name: str, week: int, rank: int, points: int, username: str) -> str:
     return (
-        f"✅ Team {team_name} vừa check-in tuần {week}.\n"
+        f"✅ Một team vừa check-in tuần {week}!\n"
         f"- Thứ tự tuần này: #{rank}\n"
-        f"- Điểm nhận: +{points}\n"
-        f"- Người gửi: @{username}\n\n"
-        f"Leaderboard đã được cập nhật. Mời anh em quote và thảo luận 😄"
+        f"- Điểm nhận: +{points}\n\n"
+        f"Leaderboard đã được cập nhật. Team bạn đã check-in chưa? 👀"
     )
 
 
@@ -52,14 +51,14 @@ def build_share_forward(
     username: str,
     is_new_best: bool,
 ) -> str:
-    badge = "\n🏆 Điểm cao nhất mới của team!" if is_new_best else ""
+    badge = "\n🏆 Kỷ lục mới!" if is_new_best else ""
     week_text = f"tuần {week}" if week else ""
     return (
-        f"💡 Team {team_name} vừa chia sẻ bài AI{' — ' + week_text if week_text else ''}.\n"
+        f"💡 Một team vừa chia sẻ bài AI{' — ' + week_text if week_text else ''}!\n"
         f"🎯 Điểm: {score}/100\n"
         f"✨ {highlight}"
         f"{badge}\n\n"
-        f"Muốn biết chi tiết? Hãy tự thử chia sẻ bài AI của team bạn! 🔥"
+        f"Team bạn đang ở đâu trên BXH? Thử chia sẻ bài AI ngay! 🔥"
     )
 
 
