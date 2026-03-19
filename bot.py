@@ -34,6 +34,7 @@ from telegram.ext import (
 import config
 import sheets
 import scoring
+import storage
 import leaderboard as lb
 
 logging.basicConfig(
@@ -69,7 +70,12 @@ def _extract_week(text: str) -> int | None:
 
 
 def _extract_member_count(text: str) -> int | None:
-    """Trích số member từ text, ví dụ '10 người họp' → 10."""
+    """Trích số người tham dự từ text.
+    Ưu tiên pattern 'X/Y người' (trích X), sau đó 'X người'.
+    """
+    m = re.search(r"(\d+)\s*/\s*\d+\s*(?:người|thành viên|members?)", text, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
     m = re.search(r"(\d+)\s*(?:người|thành viên|members?|người họp|người tham)", text, re.IGNORECASE)
     return int(m.group(1)) if m else None
 
@@ -296,28 +302,60 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
 
 async def checkin_receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Bước 1: Nhận ảnh NotebookLM."""
+    """Bước 1: Nhận và xác minh ảnh NotebookLM."""
     message = update.effective_message
+    photo_id = message.photo[-1].file_id
+
+    # Tải ảnh và xác minh bằng AI vision
+    await message.reply_text("⏳ Đang xác minh ảnh NotebookLM...")
+    tg_file = await context.bot.get_file(photo_id)
+    photo_bytes = bytes(await tg_file.download_as_bytearray())
+    photo_result = scoring.validate_notebooklm_photo(photo_bytes)
+
+    if not photo_result.valid:
+        await message.reply_text(
+            f"❌ Ảnh không hợp lệ: {photo_result.reason}\n\n"
+            "Vui lòng gửi lại ảnh chụp màn hình NotebookLM "
+            "(notebooklm.google.com — giao diện Audio Overview, Notebook Guide hoặc Sources)."
+        )
+        return WAITING_CHECKIN_PHOTO
+
+    context.user_data["checkin_photo_id"] = photo_id
 
     # Nếu ảnh kèm caption đầy đủ → xử lý thẳng
     caption = message.caption or ""
     if caption.strip() and _extract_week(caption):
         return await _process_checkin(update, context, caption)
 
-    # Lưu ảnh, chuyển bước 2
-    context.user_data["checkin_photo_id"] = message.photo[-1].file_id
+    # Chuyển bước 2 — hướng dẫn viết nội dung
     await message.reply_text(
-        "✅ Đã nhận ảnh!\n\n"
+        "✅ Ảnh NotebookLM hợp lệ!\n\n"
         "📋 Check-in tuần — Bước 2/2\n\n"
-        "Gửi nội dung check-in với hashtag:\n\n"
-        "📌 Ví dụ:\n"
-        "#post #week_1\n"
+        "Gửi nội dung check-in theo mẫu dưới đây. "
+        "Điền đầy đủ và cụ thể để được tính điểm tối đa.\n\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "📌 MẪU (copy & điền vào):\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "#post #week_<số tuần>\n"
+        "Checkin DD/MM/YYYY\n"
+        "Tham dự: <số có mặt>/<tổng thành viên> người\n"
+        "Vắng: <tên hoặc số người vắng, lý do nếu có>\n"
+        "Giải quyết từ tuần trước: <đã xong>/<tổng tồn> vấn đề\n"
+        "Vấn đề mới: <số lượng> — <mô tả ngắn từng vấn đề>\n"
+        "Tổng tồn đọng: <số>\n"
+        "Tóm tắt buổi họp: <nội dung chính đã thảo luận, quyết định quan trọng>\n\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "📌 VÍ DỤ:\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "#post #week_3\n"
         "Checkin 17/03/2026\n"
-        "10 người họp\n"
-        "Thiếu: 1 người\n"
-        "3/5 vấn đề tuần trước đã giải quyết\n"
-        "2 vấn đề mới phát sinh\n"
-        "Tổng vấn đề tồn: 4",
+        "Tham dự: 9/10 người\n"
+        "Vắng: Anh Minh (bận công tác)\n"
+        "Giải quyết từ tuần trước: 3/5 vấn đề\n"
+        "Vấn đề mới: 2 — lỗi API thanh toán, chậm onboard user mới\n"
+        "Tổng tồn đọng: 4\n"
+        "Tóm tắt buổi họp: Review sprint 3, demo tính năng export báo cáo, "
+        "thống nhất kế hoạch Q2 và phân công nhiệm vụ tuần tới.\n\n"
     )
     return WAITING_CHECKIN_CONTENT
 
@@ -374,6 +412,17 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         )
         return WAITING_CHECKIN_CONTENT
 
+    # Upload ảnh lên S3 (nếu đã cấu hình)
+    photo_url: str | None = None
+    photo_id = context.user_data.get("checkin_photo_id")
+    if photo_id and config.USE_S3:
+        try:
+            tg_file = await context.bot.get_file(photo_id)
+            photo_bytes = bytes(await tg_file.download_as_bytearray())
+            photo_url = storage.upload_checkin_photo(photo_bytes, team["team_id"], week)
+        except Exception as e:
+            logger.error("Failed to upload photo to S3: %s", e)
+
     member_count = _extract_member_count(submission) or 0
     rank = sheets.count_checkins_for_week(week) + 1
     points = config.CHECKIN_POINTS
@@ -384,10 +433,11 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
             team_name=team["team_name"],
             week=week,
             summary_text=submission[:1000],
-            has_screenshot=True,
+            has_screenshot=bool(photo_id),
             rank=rank,
             points=points,
             member_count=member_count,
+            photo_url=photo_url,
         )
         sheets.compute_and_save_leaderboard()
         sheets.update_organizer_details()
@@ -782,6 +832,8 @@ def main() -> None:
         asyncio.get_event_loop()
     except RuntimeError:
         asyncio.set_event_loop(asyncio.new_event_loop())
+
+    sheets.ensure_schema()
 
     app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 

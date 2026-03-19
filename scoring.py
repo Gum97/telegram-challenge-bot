@@ -57,6 +57,19 @@ def _checkin_fallback(text: str) -> CheckinResult:
     return CheckinResult(valid=not missing, reason=("Hashtag và số liệu hợp lệ." if not missing else f"Thiếu hoặc không đầy đủ: {', '.join(missing)}"))
 
 
+CHECKIN_SYSTEM_PROMPT = """Bạn xác thực nội dung check-in họp tuần của một team trong cuộc thi AI Meeting Challenge.
+
+Yêu cầu để hợp lệ (tất cả đều phải có):
+1. Hashtag #post và #week_<số> (ví dụ: #week_3)
+2. Ngày check-in (DD/MM/YYYY hoặc tương đương)
+3. Số người tham dự (ví dụ: "9/10 người", "Tham dự: 9 thành viên")
+4. Thông tin về vấn đề tồn đọng tuần trước (đã giải quyết bao nhiêu)
+5. Tổng tồn đọng hiện tại
+
+Nếu thiếu bất kỳ mục nào, trả về valid=false và nêu rõ thiếu gì.
+Trả về JSON duy nhất, không markdown: {"valid": bool, "reason": "<nhận xét ngắn tiếng Việt>"}"""
+
+
 def score_checkin(message_text: str) -> CheckinResult:
     if config.USE_FAKE_AI:
         return _checkin_fallback(message_text)
@@ -66,7 +79,7 @@ def score_checkin(message_text: str) -> CheckinResult:
             max_completion_tokens=256,
             timeout=15,
             messages=[
-                {"role": "system", "content": 'Validate checkin and return JSON {"valid":bool,"reason":string}. Require #post #week_<x> and numeric summary. Screenshot is checked separately.'},
+                {"role": "system", "content": CHECKIN_SYSTEM_PROMPT},
                 {"role": "user", "content": message_text},
             ],
         )
@@ -78,6 +91,51 @@ def score_checkin(message_text: str) -> CheckinResult:
     except Exception as e:
         logger.error("score_checkin error: %s", e)
         return _checkin_fallback(message_text)
+
+
+def validate_notebooklm_photo(photo_bytes: bytes) -> CheckinResult:
+    """Dùng AI vision để xác minh ảnh là screenshot NotebookLM hợp lệ."""
+    if config.USE_FAKE_AI:
+        return CheckinResult(valid=True, reason="Ảnh đã được ghi nhận (chế độ test).")
+    import base64
+    try:
+        b64 = base64.b64encode(photo_bytes).decode()
+        response = client.chat.completions.create(
+            model=config.OPENAI_MODEL,
+            max_completion_tokens=256,
+            timeout=20,
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Bạn kiểm tra ảnh chụp màn hình. "
+                        "Xác định xem đây có phải ảnh chụp từ NotebookLM (Google) không — "
+                        "thường có giao diện Audio Overview, Notebook Guide, Sources panel, "
+                        "hoặc chat interface của NotebookLM (notebook.google.com). "
+                        'Trả về JSON duy nhất, không markdown: {"valid": bool, "reason": "<giải thích ngắn tiếng Việt>"}'
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{b64}", "detail": "low"},
+                        },
+                        {"type": "text", "text": "Đây có phải ảnh chụp màn hình NotebookLM không?"},
+                    ],
+                },
+            ],
+        )
+        if not response.choices:
+            raise RuntimeError("AI returned empty response")
+        raw = re.sub(r"^```json\s*|```$", "", response.choices[0].message.content.strip(), flags=re.MULTILINE).strip()
+        data = json.loads(raw)
+        return CheckinResult(valid=bool(data["valid"]), reason=data.get("reason", ""))
+    except Exception as e:
+        logger.error("validate_notebooklm_photo error: %s", e)
+        # Nếu AI lỗi → không block user
+        return CheckinResult(valid=True, reason="Không thể xác minh ảnh tự động, đã ghi nhận.")
 
 
 SHARING_SYSTEM_PROMPT = """Bạn là giám khảo cuộc thi "AI Meeting Workflow Challenge".

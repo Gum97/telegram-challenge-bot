@@ -44,6 +44,15 @@ CHECKIN_POINTS: int = int(_get("CHECKIN_POINTS", "10"))
 MAX_CHECKIN_POINTS: int = CHECKIN_POINTS * TOTAL_WEEKS  # Tổng điểm check-in tối đa
 MAX_SHARES_PER_WEEK: int = int(_get("MAX_SHARES_PER_WEEK", "3"))  # Tối đa 3 lần share/tuần/team
 
+# --- AWS S3 (lưu ảnh check-in) ---
+AWS_ACCESS_KEY_ID: str | None = _get("AWS_ACCESS_KEY_ID")
+AWS_SECRET_ACCESS_KEY: str | None = _get("AWS_SECRET_ACCESS_KEY")
+AWS_S3_BUCKET: str | None = _get("AWS_S3_BUCKET")
+AWS_S3_REGION: str = _get("AWS_S3_REGION", "ap-southeast-1")
+AWS_S3_ENDPOINT_URL: str | None = _get("AWS_S3_ENDPOINT_URL")  # API endpoint cho boto3 (không có bucket)
+AWS_S3_PUBLIC_URL: str | None = _get("AWS_S3_PUBLIC_URL")       # Base URL public để tạo link (có thể khác endpoint)
+USE_S3: bool = bool(AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY and AWS_S3_BUCKET)
+
 # --- Tên tab trong Google Sheets ---
 SHEET_TEAMS = "Teams"
 SHEET_CHECKINS = "Checkins"

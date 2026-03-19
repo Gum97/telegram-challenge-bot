@@ -49,6 +49,21 @@ def _get_sheet(tab_name: str):
     return spreadsheet.worksheet(tab_name)
 
 
+def ensure_schema() -> None:
+    """Đảm bảo các sheet có đủ cột cần thiết. Tự thêm cột mới nếu thiếu."""
+    if config.USE_LOCAL_STORAGE:
+        return
+    try:
+        ws = _get_sheet(config.SHEET_CHECKINS)
+        headers = ws.row_values(1)
+        if "photo_url" not in headers:
+            next_col = len(headers) + 1
+            ws.update_cell(1, next_col, "photo_url")
+            logger.info("Đã thêm cột 'photo_url' vào sheet Checkins (cột %d).", next_col)
+    except Exception as e:
+        logger.warning("ensure_schema: không thể kiểm tra/cập nhật schema: %s", e)
+
+
 def register_team(telegram_user_id: int, username: str, team_name: str) -> dict:
     if config.USE_LOCAL_STORAGE:
         data = _load_local()
@@ -120,8 +135,8 @@ def team_already_checked_in(team_id: str, week: int) -> bool:
     return False
 
 
-def save_checkin(team_id: str, team_name: str, week: int, summary_text: str, has_screenshot: bool, rank: int, points: int, member_count: int = 0) -> dict:
-    row = {"id": None, "team_id": team_id, "team_name": team_name, "week": week, "submitted_at": datetime.utcnow().isoformat(), "rank": rank, "points": points, "summary_text": summary_text, "has_screenshot": "TRUE" if has_screenshot else "FALSE", "validated": "TRUE", "member_count": member_count}
+def save_checkin(team_id: str, team_name: str, week: int, summary_text: str, has_screenshot: bool, rank: int, points: int, member_count: int = 0, photo_url: str | None = None) -> dict:
+    row = {"id": None, "team_id": team_id, "team_name": team_name, "week": week, "submitted_at": datetime.utcnow().isoformat(), "rank": rank, "points": points, "summary_text": summary_text, "has_screenshot": "TRUE" if has_screenshot else "FALSE", "validated": "TRUE", "member_count": member_count, "photo_url": photo_url or ""}
     if config.USE_LOCAL_STORAGE:
         data = _load_local()
         row["id"] = f"ci_{len(data['Checkins']) + 1}"
@@ -130,7 +145,7 @@ def save_checkin(team_id: str, team_name: str, week: int, summary_text: str, has
         return row
     ws = _get_sheet(config.SHEET_CHECKINS)
     row["id"] = f"ci_{len(ws.get_all_records()) + 1}"
-    ws.append_row([row["id"], team_id, team_name, week, row["submitted_at"], rank, points, summary_text, row["has_screenshot"], row["validated"], member_count])
+    ws.append_row([row["id"], team_id, team_name, week, row["submitted_at"], rank, points, summary_text, row["has_screenshot"], row["validated"], member_count, photo_url or ""])
     return row
 
 
