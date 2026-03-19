@@ -13,7 +13,7 @@ Luồng hoạt động:
 import asyncio
 import logging
 import re
-from datetime import time, timezone, timedelta
+from datetime import datetime, date, time, timezone, timedelta
 
 from telegram import (
     BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
@@ -77,7 +77,6 @@ def _current_week() -> int | None:
     if not config.CHALLENGE_START_DATE:
         return None
     try:
-        from datetime import date
         start = date.fromisoformat(config.CHALLENGE_START_DATE)
         today = datetime.now(ICT).date()
         delta = (today - start).days
