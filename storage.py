@@ -26,7 +26,7 @@ def _get_client():
                 # boto3 >= 1.36.0 bật CRC checksum mặc định — FPT Cloud không hỗ trợ
                 request_checksum_calculation="when_required",
                 response_checksum_validation="when_required",
-                s3={"addressing_style": "path"},
+                s3={"addressing_style": "path", "payload_signing_enabled": False},
                 retries={"max_attempts": 3, "mode": "standard"},
             ),
         }
