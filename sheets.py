@@ -49,22 +49,44 @@ def _get_sheet(tab_name: str):
     return spreadsheet.worksheet(tab_name)
 
 
+_SHEET_MIN_ROWS = 10000
+_SHEET_MIN_COLS = 50
+
+
+def _expand_sheet(ws) -> None:
+    """Mở rộng sheet lên tối thiểu _SHEET_MIN_ROWS dòng và _SHEET_MIN_COLS cột."""
+    needs_resize = ws.row_count < _SHEET_MIN_ROWS or ws.col_count < _SHEET_MIN_COLS
+    if needs_resize:
+        ws.resize(
+            rows=max(ws.row_count, _SHEET_MIN_ROWS),
+            cols=max(ws.col_count, _SHEET_MIN_COLS),
+        )
+
+
 def ensure_schema() -> None:
-    """Đảm bảo các sheet có đủ cột cần thiết. Tự thêm cột mới nếu thiếu."""
+    """Mở rộng grid tất cả các sheet và thêm cột mới nếu thiếu."""
     if config.USE_LOCAL_STORAGE:
         return
     try:
-        ws = _get_sheet(config.SHEET_CHECKINS)
+        client = _get_client()
+        spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
+        for tab in [config.SHEET_TEAMS, config.SHEET_CHECKINS, config.SHEET_SHARES, config.SHEET_LEADERBOARD]:
+            try:
+                ws = spreadsheet.worksheet(tab)
+                _expand_sheet(ws)
+                logger.info("Sheet '%s': grid OK (%d rows × %d cols).", tab, ws.row_count, ws.col_count)
+            except Exception as e:
+                logger.warning("ensure_schema: không thể mở rộng sheet '%s': %s", tab, e)
+
+        # Thêm cột photo_url vào Checkins nếu chưa có
+        ws = spreadsheet.worksheet(config.SHEET_CHECKINS)
         headers = ws.row_values(1)
         if "photo_url" not in headers:
             next_col = len(headers) + 1
-            # Mở rộng grid nếu số cột hiện tại không đủ
-            if ws.col_count < next_col:
-                ws.resize(rows=ws.row_count, cols=next_col)
             ws.update_cell(1, next_col, "photo_url")
             logger.info("Đã thêm cột 'photo_url' vào sheet Checkins (cột %d).", next_col)
     except Exception as e:
-        logger.warning("ensure_schema: không thể kiểm tra/cập nhật schema: %s", e)
+        logger.warning("ensure_schema: lỗi: %s", e)
 
 
 def register_team(telegram_user_id: int, username: str, team_name: str) -> dict:
