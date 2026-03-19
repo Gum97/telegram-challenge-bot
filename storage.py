@@ -21,7 +21,10 @@ def _get_client():
             "aws_secret_access_key": config.AWS_SECRET_ACCESS_KEY,
             "region_name": config.AWS_S3_REGION,
             # path-style để tương thích S3-compatible (FPT Cloud, MinIO, v.v.)
-            "config": Config(signature_version="s3v4", s3={"addressing_style": "virtual"}),
+            "config": Config(
+                signature_version="s3v4",
+                s3={"addressing_style": "virtual", "payload_signing_enabled": False},
+            ),
         }
         if config.AWS_S3_ENDPOINT_URL:
             kwargs["endpoint_url"] = config.AWS_S3_ENDPOINT_URL
