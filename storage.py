@@ -23,7 +23,14 @@ def _get_client():
             # path-style để tương thích S3-compatible (FPT Cloud, MinIO, v.v.)
             "config": Config(
                 signature_version="s3v4",
-                s3={"addressing_style": "virtual", "payload_signing_enabled": False},
+                # boto3 >= 1.36.0 bật checksum mặc định — FPT Cloud (MinIO) không hỗ trợ
+                request_checksum_calculation="when_required",
+                response_checksum_validation="when_required",
+                s3={
+                    "addressing_style": "path",
+                    "payload_signing_enabled": False,
+                },
+                retries={"max_attempts": 3, "mode": "standard"},
             ),
         }
         if config.AWS_S3_ENDPOINT_URL:
