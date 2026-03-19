@@ -74,6 +74,7 @@ def upload_checkin_photo(photo_bytes: bytes, team_id: str, week: int) -> str | N
             Key=key,
             Body=photo_bytes,
             ContentType="image/jpeg",
+            ACL="public-read",
         )
         url = _public_url(key)
         logger.info("Uploaded checkin photo: %s", url)
