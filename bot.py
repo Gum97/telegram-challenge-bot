@@ -69,6 +69,25 @@ def _extract_week(text: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
+def _current_week() -> int | None:
+    """Tính tuần hiện tại dựa trên CHALLENGE_START_DATE (ICT).
+    Trả về None nếu chưa cấu hình hoặc chưa đến ngày bắt đầu.
+    Trả về số tuần (1-based) kể từ ngày bắt đầu.
+    """
+    if not config.CHALLENGE_START_DATE:
+        return None
+    try:
+        from datetime import date
+        start = date.fromisoformat(config.CHALLENGE_START_DATE)
+        today = datetime.now(ICT).date()
+        delta = (today - start).days
+        if delta < 0:
+            return None  # Chưa bắt đầu
+        return delta // 7 + 1
+    except (ValueError, TypeError):
+        return None
+
+
 def _extract_member_count(text: str) -> int | None:
     """Trích số người tham dự từ text.
     Ưu tiên pattern 'X/Y người' (trích X), sau đó 'X người'.
@@ -391,10 +410,29 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         )
         return ConversationHandler.END
 
-    week = _extract_week(submission)
+    # Ưu tiên tính tuần từ CHALLENGE_START_DATE; fallback về #week_N nếu chưa cấu hình
+    week = _current_week()
     if week is None:
-        await message.reply_text("❌ Thiếu hashtag #week_<số> (ví dụ: #week_1). Gửi lại:")
-        return WAITING_CHECKIN_CONTENT
+        # Fallback: dùng #week_N từ user
+        week = _extract_week(submission)
+        if week is None:
+            await message.reply_text("❌ Thiếu hashtag #week_<số> (ví dụ: #week_1). Gửi lại:")
+            return WAITING_CHECKIN_CONTENT
+    elif week > config.TOTAL_WEEKS:
+        await message.reply_text(
+            f"⚠️ Thử thách đã kết thúc (tuần {config.TOTAL_WEEKS}/{config.TOTAL_WEEKS}).",
+            reply_markup=_main_menu_keyboard(registered=True),
+        )
+        _checkin_cleanup(context)
+        return ConversationHandler.END
+    else:
+        # Kiểm tra nếu user ghi sai tuần → cảnh báo nhẹ nhưng vẫn dùng tuần đúng
+        user_week = _extract_week(submission)
+        if user_week and user_week != week:
+            logger.warning(
+                "User %s ghi #week_%d nhưng tuần thực tế là %d — dùng tuần %d.",
+                update.effective_user.id, user_week, week, week,
+            )
 
     if sheets.team_already_checked_in(team["team_id"], week):
         await message.reply_text(

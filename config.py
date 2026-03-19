@@ -43,6 +43,8 @@ TOTAL_WEEKS: int = int(_get("TOTAL_WEEKS", "10"))
 CHECKIN_POINTS: int = int(_get("CHECKIN_POINTS", "10"))
 MAX_CHECKIN_POINTS: int = CHECKIN_POINTS * TOTAL_WEEKS  # Tổng điểm check-in tối đa
 MAX_SHARES_PER_WEEK: int = int(_get("MAX_SHARES_PER_WEEK", "3"))  # Tối đa 3 lần share/tuần/team
+# Ngày bắt đầu thử thách (YYYY-MM-DD, theo ICT). None = chưa cấu hình, bot dùng #week_N từ user.
+CHALLENGE_START_DATE: str | None = _get("CHALLENGE_START_DATE")
 
 # --- AWS S3 (lưu ảnh check-in) ---
 AWS_ACCESS_KEY_ID: str | None = _get("AWS_ACCESS_KEY_ID")
