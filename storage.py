@@ -23,13 +23,10 @@ def _get_client():
             # path-style để tương thích S3-compatible (FPT Cloud, MinIO, v.v.)
             "config": Config(
                 signature_version="s3v4",
-                # boto3 >= 1.36.0 bật checksum mặc định — FPT Cloud (MinIO) không hỗ trợ
+                # boto3 >= 1.36.0 bật CRC checksum mặc định — FPT Cloud không hỗ trợ
                 request_checksum_calculation="when_required",
                 response_checksum_validation="when_required",
-                s3={
-                    "addressing_style": "path",
-                    "payload_signing_enabled": False,
-                },
+                s3={"addressing_style": "path"},
                 retries={"max_attempts": 3, "mode": "standard"},
             ),
         }
