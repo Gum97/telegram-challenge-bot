@@ -58,6 +58,9 @@ def ensure_schema() -> None:
         headers = ws.row_values(1)
         if "photo_url" not in headers:
             next_col = len(headers) + 1
+            # Mở rộng grid nếu số cột hiện tại không đủ
+            if ws.col_count < next_col:
+                ws.resize(rows=ws.row_count, cols=next_col)
             ws.update_cell(1, next_col, "photo_url")
             logger.info("Đã thêm cột 'photo_url' vào sheet Checkins (cột %d).", next_col)
     except Exception as e:

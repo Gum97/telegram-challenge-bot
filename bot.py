@@ -834,6 +834,7 @@ def main() -> None:
         asyncio.set_event_loop(asyncio.new_event_loop())
 
     sheets.ensure_schema()
+    storage.check_connection()
 
     app = Application.builder().token(config.TELEGRAM_BOT_TOKEN).post_init(post_init).build()
 

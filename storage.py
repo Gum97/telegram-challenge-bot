@@ -38,6 +38,20 @@ def _public_url(key: str) -> str:
     return f"https://{config.AWS_S3_BUCKET}.s3.{config.AWS_S3_REGION}.amazonaws.com/{key}"
 
 
+def check_connection() -> bool:
+    """Kiểm tra kết nối S3 khi khởi động. Trả về True nếu OK."""
+    if not config.USE_S3:
+        logger.info("S3 chưa cấu hình — bỏ qua lưu ảnh.")
+        return False
+    try:
+        _get_client().head_bucket(Bucket=config.AWS_S3_BUCKET)
+        logger.info("S3 connection OK — bucket: %s", config.AWS_S3_BUCKET)
+        return True
+    except Exception as e:
+        logger.warning("S3 connection FAILED: %s", e)
+        return False
+
+
 def upload_checkin_photo(photo_bytes: bytes, team_id: str, week: int) -> str | None:
     """Upload ảnh check-in lên S3, trả về URL public hoặc None nếu S3 chưa cấu hình / lỗi.
 
