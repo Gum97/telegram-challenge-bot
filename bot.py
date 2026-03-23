@@ -16,7 +16,7 @@ import re
 from datetime import datetime, date, time, timezone, timedelta
 
 from telegram import (
-    BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats,
+    BotCommand, BotCommandScopeAllGroupChats, BotCommandScopeAllPrivateChats, BotCommandScopeChat,
     InlineKeyboardButton, InlineKeyboardMarkup, Update,
 )
 from telegram.constants import ChatType, ParseMode
@@ -991,7 +991,28 @@ async def post_init(application: Application) -> None:
         ],
     )
 
-    logger.info("Đã set command menu cho DM và Group.")
+    # Commands cho Admin (hiện thêm lệnh quản trị)
+    admin_commands = [
+        BotCommand("start", "Bắt đầu bot"),
+        BotCommand("dangki", "Đăng ký tên team"),
+        BotCommand("checkin", "Check-in tuần"),
+        BotCommand("share", "Nộp bài dự thi"),
+        BotCommand("help", "Hướng dẫn sử dụng"),
+        BotCommand("prompt", "Xem prompt chấm điểm"),
+        BotCommand("setprompt", "Sửa prompt chấm điểm"),
+        BotCommand("resetprompt", "Reset prompt về mặc định"),
+        BotCommand("setstart", "Set ngày bắt đầu thử thách"),
+    ]
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.set_my_commands(
+                commands=admin_commands,
+                scope=BotCommandScopeChat(chat_id=admin_id),
+            )
+        except Exception as e:
+            logger.warning("Failed to set admin commands for %s: %s", admin_id, e)
+
+    logger.info("Đã set command menu cho DM, Group và Admin.")
 
 
 # ── Main ─────────────────────────────────────────────────────────────────
