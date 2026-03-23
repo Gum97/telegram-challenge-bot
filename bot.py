@@ -309,7 +309,7 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     # Nếu gửi ảnh + caption đầy đủ → xử lý thẳng (shortcut)
     text = message.caption or message.text or ""
     submission = re.sub(r"^/checkin\s*", "", text, flags=re.IGNORECASE).strip()
-    if bool(message.photo) and submission and _extract_week(submission):
+    if bool(message.photo) and submission and (_current_week() is not None or _extract_week(submission)):
         return await _process_checkin(update, context, submission)
 
     # Bắt đầu flow từng bước
@@ -343,17 +343,17 @@ async def checkin_receive_photo(update: Update, context: ContextTypes.DEFAULT_TY
 
     # Nếu ảnh kèm caption đầy đủ → xử lý thẳng
     caption = message.caption or ""
-    if caption.strip() and _extract_week(caption):
+    if caption.strip() and (_current_week() is not None or _extract_week(caption)):
         return await _process_checkin(update, context, caption)
 
     # Chuyển bước 2 — hướng dẫn gửi kết quả prompt AI
     await message.reply_text(
         "✅ Ảnh NotebookLM hợp lệ!\n\n"
         "📋 Check-in tuần — Bước 2/2\n\n"
-        "Dùng prompt sau với AI (NotebookLM, ChatGPT, Gemini...) để tóm tắt cuộc họp, "
-        "rồi gửi kết quả kèm hashtag:\n\n"
+        "Dùng prompt sau với NotebookLM để tóm tắt cuộc họp, "
+        "rồi gửi kết quả vào đây:\n\n"
         "━━━━━━━━━━━━━━━━\n"
-        "📌 PROMPT (copy & dùng với AI):\n"
+        "📌 PROMPT (copy & dùng với NotebookLM):\n"
         "━━━━━━━━━━━━━━━━\n"
         "\"Hãy tóm tắt thông tin cuộc họp như sau. Tất cả chỉ cần con số, "
         "biểu diễn ngắn gọn trong 1 dòng không cần liệt kê cụ thể: "
@@ -364,13 +364,13 @@ async def checkin_receive_photo(update: Update, context: ContextTypes.DEFAULT_TY
         "━━━━━━━━━━━━━━━━\n"
         "📌 CÁCH GỬI:\n"
         "━━━━━━━━━━━━━━━━\n"
-        "#post #week_<số tuần>\n"
-        "<Dán kết quả 1 dòng từ AI vào đây>\n\n"
+        "<Dán kết quả 1 dòng từ NotebookLM vào đây>\n\n"
         "━━━━━━━━━━━━━━━━\n"
         "📌 VÍ DỤ:\n"
         "━━━━━━━━━━━━━━━━\n"
-        "#post #week_3\n"
-        "17/03/2026, 9 tham dự, 1 vắng, 3 vấn đề raised, 5 next action, 7 action tồn đọng\n\n"
+        "Ngày: 18/03/2026, Tham dự: 11 người, Vắng: 1 người, "
+        "Số vấn đề mới được raise: 4, Số next action: 3, "
+        "Tổng action tồn đọng: 3\n\n"
     )
     return WAITING_CHECKIN_CONTENT
 
@@ -385,10 +385,10 @@ async def checkin_photo_fallback(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def checkin_receive_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Bước 2: Nhận nội dung hashtag + số liệu."""
+    """Bước 2: Nhận kết quả prompt tóm tắt cuộc họp."""
     text = (update.message.text or "").strip()
     if not text:
-        await update.message.reply_text("⚠️ Vui lòng gửi nội dung check-in với hashtag #post #week_<số>:")
+        await update.message.reply_text("⚠️ Vui lòng gửi kết quả tóm tắt cuộc họp từ NotebookLM:")
         return WAITING_CHECKIN_CONTENT
     return await _process_checkin(update, context, text)
 
@@ -406,13 +406,16 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         )
         return ConversationHandler.END
 
-    # Ưu tiên tính tuần từ CHALLENGE_START_DATE; fallback về #week_N nếu chưa cấu hình
+    # Ưu tiên tính tuần từ start_date; fallback về #week_N nếu có
     week = _current_week()
     if week is None:
-        # Fallback: dùng #week_N từ user
+        # Fallback: dùng #week_N từ user (nếu có)
         week = _extract_week(submission)
         if week is None:
-            await message.reply_text("❌ Thiếu hashtag #week_<số> (ví dụ: #week_1). Gửi lại:")
+            await message.reply_text(
+                "❌ Chưa set ngày bắt đầu thử thách và không tìm thấy #week_<số>.\n"
+                "Liên hệ admin để /setstart hoặc thêm #week_<số> vào nội dung.",
+            )
             return WAITING_CHECKIN_CONTENT
     elif week > config.TOTAL_WEEKS:
         await message.reply_text(
@@ -560,8 +563,7 @@ async def share_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         "Top 10 bài điểm cao nhất sẽ được Hội đồng AI chấm trực tiếp và trao giải.\n\n"
         "📝 Yêu cầu:\n"
         "• Viết dạng Markdown, tối thiểu 100 từ\n"
-        "• Có raise vấn đề, có lập luận, có ví dụ\n"
-        "• Kèm hashtag #share\n\n"
+        "• Có raise vấn đề, có lập luận, có ví dụ\n\n"
         "📋 3 nhóm bài (trọng số cao → thấp):\n"
         "1️⃣ Đề xuất Quy trình họp Team hiệu quả với AI\n"
         "2️⃣ Chia sẻ quy trình cá nhân/team/phòng ban dùng AI tối ưu hiệu suất\n"
@@ -613,7 +615,7 @@ async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         hint = f"✨ Bài tốt nhất: {prev_best}/80 — nộp thêm nếu muốn cải thiện!\n"
 
     await message.reply_text(
-        "💡 Gửi bài dự thi kèm hashtag #share (tối thiểu 100 từ, hỗ trợ Markdown):\n\n"
+        "💡 Gửi bài dự thi (tối thiểu 100 từ, hỗ trợ Markdown):\n\n"
         + hint
         + "Submit nhiều lần được, chỉ tính điểm cao nhất.",
     )

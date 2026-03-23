@@ -99,28 +99,23 @@ def _has_numeric_summary(text: str) -> bool:
 
 def _checkin_fallback(text: str) -> CheckinResult:
     """Chấm check-in bằng heuristic khi không có AI thật."""
-    has_post = bool(re.search(r"#post\b", text, re.IGNORECASE))
-    has_week = bool(re.search(r"#week_(\d+)", text, re.IGNORECASE))
     has_summary = _has_numeric_summary(text)
-    missing = []
-    if not has_post: missing.append("#post")
-    if not has_week: missing.append("#week_<số>")
-    if not has_summary: missing.append("tóm tắt số liệu")
-    return CheckinResult(valid=not missing, reason=("Hashtag và số liệu hợp lệ." if not missing else f"Thiếu hoặc không đầy đủ: {', '.join(missing)}"))
+    if not has_summary:
+        return CheckinResult(valid=False, reason="Thiếu số liệu tóm tắt cuộc họp (ngày, tham dự, vắng, vấn đề, action...)")
+    return CheckinResult(valid=True, reason="Số liệu tóm tắt cuộc họp hợp lệ.")
 
 
 CHECKIN_SYSTEM_PROMPT = """Bạn xác thực nội dung check-in họp tuần của một team trong cuộc thi AI Meeting Challenge.
 
-Nội dung check-in là kết quả từ prompt tóm tắt cuộc họp, gồm 1 dòng số liệu ngắn gọn.
+Nội dung check-in là kết quả từ prompt tóm tắt cuộc họp trên NotebookLM, gồm 1 dòng số liệu ngắn gọn.
 
 Yêu cầu để hợp lệ (tất cả đều phải có):
-1. Hashtag #post và #week_<số> (ví dụ: #week_3)
-2. Ngày diễn ra cuộc họp (DD/MM/YYYY hoặc tương đương)
-3. Số người tham dự
-4. Số người vắng
-5. Số vấn đề được raise lên trong cuộc họp
-6. Số lượng next action trong cuộc họp
-7. Tổng số action còn tồn đọng cộng dồn
+1. Ngày diễn ra cuộc họp
+2. Số người tham dự
+3. Số người vắng
+4. Số vấn đề được raise lên trong cuộc họp
+5. Số lượng next action trong cuộc họp
+6. Tổng số action còn tồn đọng cộng dồn
 
 Nếu thiếu bất kỳ mục nào, trả về valid=false và nêu rõ thiếu gì.
 Trả về JSON duy nhất, không markdown: {"valid": bool, "reason": "<nhận xét ngắn tiếng Việt>"}"""
