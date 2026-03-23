@@ -29,7 +29,7 @@ def format_leaderboard(standings: list[dict], week: Optional[int] = None) -> str
         )
 
     lines.append("")
-    lines.append("Check-in: tối đa 100 điểm / 10 tuần | Sharing: chỉ lấy bài cao nhất mỗi team")
+    lines.append("Check-in: 20đ/tuần × 6 tuần = 120đ | Bài dự thi: tối đa 80đ (lấy điểm cao nhất)")
     return "\n".join(lines)
 
 
@@ -54,11 +54,11 @@ def build_share_forward(
     badge = "\n🏆 Kỷ lục mới!" if is_new_best else ""
     week_text = f"tuần {week}" if week else ""
     return (
-        f"💡 Một team vừa chia sẻ bài AI{' — ' + week_text if week_text else ''}!\n"
-        f"🎯 Điểm: {score}/100\n"
+        f"💡 Một team vừa nộp bài dự thi{' — ' + week_text if week_text else ''}!\n"
+        f"🎯 Điểm: {score}/80\n"
         f"✨ {highlight}"
         f"{badge}\n\n"
-        f"Team bạn đang ở đâu trên BXH? Thử chia sẻ bài AI ngay! 🔥"
+        f"Team bạn đang ở đâu trên BXH? Nộp bài dự thi ngay! 🔥"
     )
 
 

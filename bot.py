@@ -6,7 +6,7 @@ Luồng hoạt động:
 - /help       → Hướng dẫn chi tiết
 - /dangki     → Đăng ký tên team (ConversationHandler)
 - /checkin    → Nộp check-in hàng tuần (DM)
-- /share      → Chia sẻ bài viết AI (DM)
+- /share      → Nộp bài dự thi (DM)
 - /leaderboard → Xem bảng xếp hạng
 """
 
@@ -71,13 +71,15 @@ def _extract_week(text: str) -> int | None:
 
 def _current_week() -> int | None:
     """Tính tuần hiện tại dựa trên CHALLENGE_START_DATE (ICT).
+    Ưu tiên: .env → prompts.json (admin set) → None.
     Trả về None nếu chưa cấu hình hoặc chưa đến ngày bắt đầu.
     Trả về số tuần (1-based) kể từ ngày bắt đầu.
     """
-    if not config.CHALLENGE_START_DATE:
+    start_str = scoring.get_prompt("start_date") or config.CHALLENGE_START_DATE
+    if not start_str:
         return None
     try:
-        start = date.fromisoformat(config.CHALLENGE_START_DATE)
+        start = date.fromisoformat(start_str)
         today = datetime.now(ICT).date()
         delta = (today - start).days
         if delta < 0:
@@ -106,7 +108,7 @@ def _main_menu_keyboard(registered: bool = False) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton("📝 Đăng ký team", callback_data="menu_dangki")])
     rows.extend([
         [InlineKeyboardButton("📋 Check-in tuần", callback_data="menu_checkin")],
-        [InlineKeyboardButton("💡 Chia sẻ bài AI", callback_data="menu_share")],
+        [InlineKeyboardButton("💡 Nộp bài dự thi", callback_data="menu_share")],
         [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")],
     ])
     return InlineKeyboardMarkup(rows)
@@ -148,14 +150,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 HELP_TEXT = (
     "📖 Hướng dẫn sử dụng bot:\n\n"
     "1️⃣ /dangki — Đăng ký tên team của bạn\n"
-    "2️⃣ /checkin — Nộp check-in hàng tuần (chỉ trong DM)\n"
-    "   Gửi ảnh chụp NotebookLM kèm caption:\n"
-    "   #post #week_<số> + tóm tắt số liệu\n"
-    "3️⃣ /share — Chia sẻ bài viết AI (chỉ trong DM)\n"
-    "   Gửi /share kèm nội dung bài (tối thiểu 30 ký tự)\n"
+    "2️⃣ /checkin — Check-in tuần (20đ/tuần, tối đa 6 tuần = 120đ)\n"
+    "   Gửi ảnh NotebookLM + kết quả prompt tóm tắt cuộc họp\n"
+    "3️⃣ /share — Nộp bài dự thi (tối đa 80đ, tính lần cao nhất)\n"
+    "   3 nhóm: Quy trình họp AI > Quy trình AI > Tin tức AI\n"
     "4️⃣ /leaderboard — Xem bảng xếp hạng (trong group)\n\n"
     "⚠️ Lưu ý: /checkin và /share chỉ hoạt động trong DM với bot.\n"
-    "🏆 Bảng xếp hạng xem trong group hoặc tự động gửi hàng tuần."
+    "🏆 Top 10 bài dự thi cao nhất được Hội đồng AI chấm trực tiếp."
 )
 
 
@@ -345,35 +346,31 @@ async def checkin_receive_photo(update: Update, context: ContextTypes.DEFAULT_TY
     if caption.strip() and _extract_week(caption):
         return await _process_checkin(update, context, caption)
 
-    # Chuyển bước 2 — hướng dẫn viết nội dung
+    # Chuyển bước 2 — hướng dẫn gửi kết quả prompt AI
     await message.reply_text(
         "✅ Ảnh NotebookLM hợp lệ!\n\n"
         "📋 Check-in tuần — Bước 2/2\n\n"
-        "Gửi nội dung check-in theo mẫu dưới đây. "
-        "Điền đầy đủ và cụ thể để được tính điểm tối đa.\n\n"
+        "Dùng prompt sau với AI (NotebookLM, ChatGPT, Gemini...) để tóm tắt cuộc họp, "
+        "rồi gửi kết quả kèm hashtag:\n\n"
         "━━━━━━━━━━━━━━━━\n"
-        "📌 MẪU (copy & điền vào):\n"
+        "📌 PROMPT (copy & dùng với AI):\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "\"Hãy tóm tắt thông tin cuộc họp như sau. Tất cả chỉ cần con số, "
+        "biểu diễn ngắn gọn trong 1 dòng không cần liệt kê cụ thể: "
+        "Ngày diễn ra cuộc họp cuối, Số người tham dự, số người vắng, "
+        "Số vấn đề được raise lên trong cuộc họp này, "
+        "Số lượng next action trong cuộc họp này, "
+        "Tổng số action còn tồn đọng cộng dồn cả các cuộc họp\"\n\n"
+        "━━━━━━━━━━━━━━━━\n"
+        "📌 CÁCH GỬI:\n"
         "━━━━━━━━━━━━━━━━\n"
         "#post #week_<số tuần>\n"
-        "Checkin DD/MM/YYYY\n"
-        "Tham dự: <số có mặt>/<tổng thành viên> người\n"
-        "Vắng: <tên hoặc số người vắng, lý do nếu có>\n"
-        "Giải quyết từ tuần trước: <đã xong>/<tổng tồn> vấn đề\n"
-        "Vấn đề mới: <số lượng> — <mô tả ngắn từng vấn đề>\n"
-        "Tổng tồn đọng: <số>\n"
-        "Tóm tắt buổi họp: <nội dung chính đã thảo luận, quyết định quan trọng>\n\n"
+        "<Dán kết quả 1 dòng từ AI vào đây>\n\n"
         "━━━━━━━━━━━━━━━━\n"
         "📌 VÍ DỤ:\n"
         "━━━━━━━━━━━━━━━━\n"
         "#post #week_3\n"
-        "Checkin 17/03/2026\n"
-        "Tham dự: 9/10 người\n"
-        "Vắng: Anh Minh (bận công tác)\n"
-        "Giải quyết từ tuần trước: 3/5 vấn đề\n"
-        "Vấn đề mới: 2 — lỗi API thanh toán, chậm onboard user mới\n"
-        "Tổng tồn đọng: 4\n"
-        "Tóm tắt buổi họp: Review sprint 3, demo tính năng export báo cáo, "
-        "thống nhất kế hoạch Q2 và phân công nhiệm vụ tuần tới.\n\n"
+        "17/03/2026, 9 tham dự, 1 vắng, 3 vấn đề raised, 5 next action, 7 action tồn đọng\n\n"
     )
     return WAITING_CHECKIN_CONTENT
 
@@ -545,34 +542,34 @@ async def share_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
 
     context.user_data["share_team"] = team
     prev_best = sheets.get_best_share_score(team["team_id"])
-    week_count = sheets.count_shares_this_week(team["team_id"])
-    remaining = max(0, config.MAX_SHARES_PER_WEEK - week_count)
 
     urgency = ""
     if prev_best == 0:
         urgency = "🚀 Team chưa có bài nào — nộp ngay để không bị bỏ lại!\n\n"
-    elif prev_best < 60:
-        urgency = f"⚡ Bài tốt nhất của team: {prev_best}/100 — còn {remaining} slot tuần này. Thử một vấn đề AI khác để nâng điểm!\n\n"
+    elif prev_best < 50:
+        urgency = f"⚡ Bài tốt nhất của team: {prev_best}/80 — nộp thêm để nâng điểm!\n\n"
     else:
-        urgency = f"✨ Bài tốt nhất: {prev_best}/100. Còn {remaining} slot tuần này — chia sẻ thêm vấn đề AI khác!\n\n"
+        urgency = f"✨ Bài tốt nhất: {prev_best}/80 — nộp thêm nếu muốn cải thiện!\n\n"
 
     await _safe_edit(
         query,
-        "💡 Chia sẻ bài AI\n\n"
+        "💡 Bài dự thi (tối đa 80 điểm)\n\n"
         + urgency +
-        "Viết bài chia sẻ cách team ứng dụng AI vào công việc thực tế.\n"
-        "Kèm hashtag #share #week_<số>\n\n"
-        f"⚠️ Tối đa {config.MAX_SHARES_PER_WEEK} bài/tuần, mỗi bài phải là vấn đề AI khác nhau.\n"
-        "Điểm cao nhất trong tuần được tính vào BXH.\n\n"
+        "Submit nhiều lần được, chỉ tính 1 lần điểm cao nhất.\n"
+        "Bài dự thi là private, khi kết thúc cuộc thi mới public.\n"
+        "Top 10 bài điểm cao nhất sẽ được Hội đồng AI chấm trực tiếp và trao giải.\n\n"
+        "📝 Yêu cầu:\n"
+        "• Viết dạng Markdown, tối thiểu 100 từ\n"
+        "• Có raise vấn đề, có lập luận, có ví dụ\n"
+        "• Kèm hashtag #share\n\n"
+        "📋 3 nhóm bài (trọng số cao → thấp):\n"
+        "1️⃣ Đề xuất Quy trình họp Team hiệu quả với AI\n"
+        "2️⃣ Chia sẻ quy trình cá nhân/team/phòng ban dùng AI tối ưu hiệu suất\n"
+        "3️⃣ Chia sẻ, nhận xét, đánh giá về tin tức/sự kiện AI\n\n"
         "🤖 AI chấm theo 3 tiêu chí:\n"
-        "• Tính mới (33đ) — cách dùng AI độc đáo, có twist riêng\n"
-        "• Tính thực tế (33đ) — có số liệu trước/sau, đã áp dụng thật\n"
-        "• Độ rõ workflow (34đ) — mô tả rõ input → tool → output\n\n"
-        "📌 Ví dụ:\n"
-        "#share #week_1\n"
-        "Vấn đề: Viết test cho module thanh toán tốn 2 ngày.\n"
-        "Giải pháp: Dùng ChatGPT + prompt \"Viết unit test cho hàm X, cover edge case Y\".\n"
-        "Kết quả: Coverage 40% → 85%, phát hiện 3 bug, tiết kiệm 1.5 ngày.",
+        "• Tính mới (26đ) — cách dùng AI độc đáo, có twist riêng\n"
+        "• Tính thực tế (27đ) — có số liệu trước/sau, đã áp dụng thật\n"
+        "• Độ rõ workflow (27đ) — mô tả rõ input → tool → output",
     )
     return WAITING_SHARE_CONTENT
 
@@ -601,35 +598,35 @@ async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     text = message.text or ""
     submission = re.sub(r"^/share\s*", "", text, flags=re.IGNORECASE).strip()
 
-    if submission and len(submission) >= 30:
+    word_count = len(submission.split()) if submission else 0
+    if submission and word_count >= 100:
         return await _process_share(update, context, submission)
 
     # Chờ nội dung
     prev_best = sheets.get_best_share_score(team["team_id"])
-    week_count = sheets.count_shares_this_week(team["team_id"])
-    remaining = max(0, config.MAX_SHARES_PER_WEEK - week_count)
 
     if prev_best == 0:
-        hint = f"🚀 Team chưa có bài nào! Nộp ngay để ghi điểm. Còn {remaining} slot tuần này.\n"
-    elif prev_best < 60:
-        hint = f"⚡ Bài tốt nhất: {prev_best}/100 — thử vấn đề AI khác để nâng điểm! Còn {remaining} slot.\n"
+        hint = "🚀 Team chưa có bài nào! Nộp ngay để ghi điểm.\n"
+    elif prev_best < 50:
+        hint = f"⚡ Bài tốt nhất: {prev_best}/80 — nộp thêm để nâng điểm!\n"
     else:
-        hint = f"✨ Bài tốt nhất: {prev_best}/100. Còn {remaining} slot tuần này.\n"
+        hint = f"✨ Bài tốt nhất: {prev_best}/80 — nộp thêm nếu muốn cải thiện!\n"
 
     await message.reply_text(
-        "💡 Gửi bài chia sẻ AI kèm hashtag #share #week_<số> (tối thiểu 30 ký tự):\n\n"
+        "💡 Gửi bài dự thi kèm hashtag #share (tối thiểu 100 từ, hỗ trợ Markdown):\n\n"
         + hint
-        + f"⚠️ Mỗi bài phải là vấn đề AI khác nhau (tối đa {config.MAX_SHARES_PER_WEEK} bài/tuần).",
+        + "Submit nhiều lần được, chỉ tính điểm cao nhất.",
     )
     return WAITING_SHARE_CONTENT
 
 
 async def share_receive_content(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Nhận nội dung bài chia sẻ."""
+    """Nhận nội dung bài dự thi."""
     text = (update.message.text or "").strip()
-    if not text or len(text) < 30:
+    word_count = len(text.split()) if text else 0
+    if word_count < 100:
         await update.message.reply_text(
-            "⚠️ Nội dung quá ngắn (tối thiểu 30 ký tự). Gửi lại:\n"
+            f"⚠️ Bài quá ngắn ({word_count} từ, tối thiểu 100 từ). Gửi lại:\n"
             "Gửi /cancel để huỷ.",
         )
         return WAITING_SHARE_CONTENT
@@ -651,32 +648,12 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
 
     week = _extract_week(submission) or 0
 
-    # Kiểm tra giới hạn và trùng chủ đề
-    this_week_shares = sheets.get_shares_this_week(team["team_id"])
-    week_count = len(this_week_shares)
-
-    if week_count >= config.MAX_SHARES_PER_WEEK:
+    word_count = len(submission.split())
+    if word_count < 100:
         await message.reply_text(
-            f"⚠️ Tuần này team đã nộp {week_count} bài (tối đa {config.MAX_SHARES_PER_WEEK} chủ đề AI khác nhau/tuần).\n"
-            "Hãy quay lại tuần sau nhé!",
-            reply_markup=_main_menu_keyboard(registered=True),
+            f"⚠️ Bài quá ngắn ({word_count} từ, tối thiểu 100 từ). Gửi lại:",
         )
-        context.user_data.pop("share_team", None)
-        return ConversationHandler.END
-
-    if this_week_shares:
-        await message.reply_text("🔍 Đang kiểm tra chủ đề...")
-        prev_contents = [r.get("content", "") for r in this_week_shares]
-        is_dup, dup_reason = scoring.is_duplicate_topic(submission, prev_contents)
-        if is_dup:
-            await message.reply_text(
-                f"⚠️ Bài này có vẻ trùng chủ đề AI với bài đã nộp tuần này.\n"
-                f"💬 {dup_reason}\n\n"
-                f"Mỗi bài phải là một vấn đề / giải pháp AI khác nhau. "
-                f"Còn {config.MAX_SHARES_PER_WEEK - week_count} slot trong tuần này.",
-            )
-            context.user_data.pop("share_team", None)
-            return ConversationHandler.END
+        return WAITING_SHARE_CONTENT
 
     prev_best = sheets.get_best_share_score(team["team_id"])
 
@@ -687,7 +664,7 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
             team_id=team["team_id"],
             team_name=team["team_name"],
             week=week,
-            content=submission[:2000],
+            content=submission[:5000],
             score=result.score,
             feedback=result.feedback,
         )
@@ -698,16 +675,20 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
         context.user_data.pop("share_team", None)
         return ConversationHandler.END
 
+    category_names = {1: "Quy trình họp Team với AI", 2: "Quy trình dùng AI tối ưu hiệu suất", 3: "Nhận xét tin tức/sự kiện AI"}
     is_new_best = result.score > prev_best
     result_text = (
-        f"🎯 Điểm chia sẻ: {result.score}/100\n\n"
-        f"💡 Tính mới: {result.novelty}/33\n"
-        f"🔧 Tính thực tế: {result.practicality}/33\n"
-        f"📋 Độ rõ workflow: {result.workflow_clarity}/34\n\n"
+        f"🎯 Điểm bài dự thi: {result.score}/80\n\n"
+        f"📂 Nhóm: {result.category} — {category_names.get(result.category, 'Khác')}\n"
+        f"💡 Tính mới: {result.novelty}/26\n"
+        f"🔧 Tính thực tế: {result.practicality}/27\n"
+        f"📋 Độ rõ workflow: {result.workflow_clarity}/27\n\n"
         f"📝 Nhận xét: {result.feedback}"
     )
     if is_new_best:
         result_text += "\n\n🏆 Đây là điểm cao nhất của team bạn!"
+    else:
+        result_text += f"\n\n📊 Điểm cao nhất hiện tại: {prev_best}/80 (chỉ tính lần cao nhất)"
 
     await message.reply_text(result_text, reply_markup=_main_menu_keyboard(registered=True))
 
@@ -752,6 +733,155 @@ async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE
         reply_markup=_main_menu_keyboard(registered),
     )
     return ConversationHandler.END
+
+
+# ── Admin: quản lý prompt chấm điểm ─────────────────────────────────────
+
+def _is_admin(user_id: int) -> bool:
+    return user_id in config.ADMIN_IDS
+
+
+async def cmd_prompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/prompt [checkin|sharing] — Xem prompt hiện tại (admin only)."""
+    user = update.effective_user
+    if not _is_admin(user.id):
+        await update.message.reply_text("⛔ Chỉ admin mới dùng được lệnh này.")
+        return
+
+    args = context.args
+    keys = scoring.list_prompt_keys()
+
+    if not args:
+        await update.message.reply_text(
+            f"📋 Các prompt có thể xem/sửa: {', '.join(keys)}\n\n"
+            "Dùng: /prompt <tên>\n"
+            "Ví dụ: /prompt sharing",
+        )
+        return
+
+    key = args[0].lower()
+    if key not in keys:
+        await update.message.reply_text(f"⚠️ Prompt không tồn tại. Chọn: {', '.join(keys)}")
+        return
+
+    defaults = {
+        "checkin": scoring.CHECKIN_SYSTEM_PROMPT,
+        "sharing": scoring.SHARING_SYSTEM_PROMPT,
+    }
+    current = scoring.get_prompt(key, defaults[key])
+    is_custom = scoring.has_custom_prompt(key)
+
+    status = "✏️ Custom" if is_custom else "📦 Mặc định"
+    # Telegram giới hạn 4096 ký tự, cắt nếu cần
+    display = current[:3800]
+    if len(current) > 3800:
+        display += "\n\n... (đã cắt bớt)"
+
+    await update.message.reply_text(
+        f"📌 Prompt [{key}] — {status}\n"
+        f"📏 {len(current)} ký tự\n\n"
+        f"{display}",
+    )
+
+
+async def cmd_setprompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/setprompt <key> <nội dung> — Cập nhật prompt (admin only, max 4000 ký tự)."""
+    user = update.effective_user
+    if not _is_admin(user.id):
+        await update.message.reply_text("⛔ Chỉ admin mới dùng được lệnh này.")
+        return
+
+    text = (update.message.text or "").strip()
+    # Parse: /setprompt <key> <content...>
+    parts = text.split(None, 2)  # ['/setprompt', key, content]
+    keys = scoring.list_prompt_keys()
+
+    if len(parts) < 3:
+        await update.message.reply_text(
+            f"Cách dùng: /setprompt <{'/'.join(keys)}> <nội dung prompt>\n\n"
+            f"Tối đa {config.MAX_PROMPT_LENGTH} ký tự.\n"
+            "Dùng /resetprompt <tên> để về mặc định.",
+        )
+        return
+
+    key = parts[1].lower()
+    content = parts[2]
+
+    if key not in keys:
+        await update.message.reply_text(f"⚠️ Prompt không tồn tại. Chọn: {', '.join(keys)}")
+        return
+
+    if len(content) > config.MAX_PROMPT_LENGTH:
+        await update.message.reply_text(
+            f"⚠️ Prompt quá dài ({len(content)} ký tự, tối đa {config.MAX_PROMPT_LENGTH}).",
+        )
+        return
+
+    scoring.set_prompt(key, content)
+    await update.message.reply_text(
+        f"✅ Đã cập nhật prompt [{key}] ({len(content)} ký tự).\n"
+        "Dùng /prompt " + key + " để xem lại.",
+    )
+
+
+async def cmd_resetprompt(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/resetprompt <key> — Reset prompt về mặc định (admin only)."""
+    user = update.effective_user
+    if not _is_admin(user.id):
+        await update.message.reply_text("⛔ Chỉ admin mới dùng được lệnh này.")
+        return
+
+    args = context.args
+    keys = scoring.list_prompt_keys()
+
+    if not args:
+        await update.message.reply_text(f"Cách dùng: /resetprompt <{'/'.join(keys)}>")
+        return
+
+    key = args[0].lower()
+    if key not in keys:
+        await update.message.reply_text(f"⚠️ Prompt không tồn tại. Chọn: {', '.join(keys)}")
+        return
+
+    scoring.reset_prompt(key)
+    await update.message.reply_text(f"✅ Đã reset prompt [{key}] về mặc định.")
+
+
+async def cmd_setstart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/setstart YYYY-MM-DD — Set ngày bắt đầu thử thách (admin only)."""
+    user = update.effective_user
+    if not _is_admin(user.id):
+        await update.message.reply_text("⛔ Chỉ admin mới dùng được lệnh này.")
+        return
+
+    args = context.args
+    if not args:
+        current = config.CHALLENGE_START_DATE or scoring.get_prompt("start_date")
+        week = _current_week()
+        if current:
+            status = f"📅 Ngày bắt đầu hiện tại: {current}"
+            if week:
+                status += f" (đang tuần {week}/{config.TOTAL_WEEKS})"
+        else:
+            status = "⚠️ Chưa set ngày bắt đầu."
+        await update.message.reply_text(
+            f"{status}\n\nCách dùng: /setstart YYYY-MM-DD\nVí dụ: /setstart 2026-03-23",
+        )
+        return
+
+    date_str = args[0].strip()
+    try:
+        date.fromisoformat(date_str)
+    except ValueError:
+        await update.message.reply_text("⚠️ Sai format. Dùng YYYY-MM-DD, ví dụ: 2026-03-23")
+        return
+
+    scoring.set_prompt("start_date", date_str)
+    week = _current_week()
+    await update.message.reply_text(
+        f"✅ Đã set ngày bắt đầu: {date_str}\n"
+        f"📅 Tuần hiện tại: {week if week else 'chưa bắt đầu'}/{config.TOTAL_WEEKS}",
+    )
 
 
 # ── /leaderboard (group only, auto-delete) ──────────────────────────────
@@ -836,7 +966,7 @@ async def post_init(application: Application) -> None:
             BotCommand("start", "Bắt đầu bot"),
             BotCommand("dangki", "Đăng ký tên team"),
             BotCommand("checkin", "Check-in tuần"),
-            BotCommand("share", "Chia sẻ bài AI"),
+            BotCommand("share", "Nộp bài dự thi"),
             BotCommand("help", "Hướng dẫn sử dụng"),
         ],
         scope=BotCommandScopeAllPrivateChats(),
@@ -920,6 +1050,10 @@ def main() -> None:
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CommandHandler("prompt", cmd_prompt))
+    app.add_handler(CommandHandler("setprompt", cmd_setprompt))
+    app.add_handler(CommandHandler("resetprompt", cmd_resetprompt))
+    app.add_handler(CommandHandler("setstart", cmd_setstart))
     app.add_handler(conv)
     app.add_handler(CommandHandler("leaderboard", cmd_leaderboard))
     app.add_handler(CallbackQueryHandler(button_handler))

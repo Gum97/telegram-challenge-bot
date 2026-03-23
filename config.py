@@ -38,9 +38,14 @@ OPENAI_API_KEY: str | None = _get("OPENAI_API_KEY")
 USE_FAKE_AI: bool = (not OPENAI_API_KEY) or OPENAI_API_KEY == "sk-..."
 OPENAI_MODEL: str = _get("OPENAI_MODEL", "gpt-4o")
 
+# --- Admin ---
+ADMIN_IDS: set[int] = {479445625, 339028172}
+PROMPTS_FILE: str = _get("PROMPTS_FILE", "prompts.json")
+MAX_PROMPT_LENGTH: int = 4000
+
 # --- Cấu hình thử thách ---
-TOTAL_WEEKS: int = int(_get("TOTAL_WEEKS", "10"))
-CHECKIN_POINTS: int = int(_get("CHECKIN_POINTS", "10"))
+TOTAL_WEEKS: int = int(_get("TOTAL_WEEKS", "6"))
+CHECKIN_POINTS: int = int(_get("CHECKIN_POINTS", "20"))
 MAX_CHECKIN_POINTS: int = CHECKIN_POINTS * TOTAL_WEEKS  # Tổng điểm check-in tối đa
 MAX_SHARES_PER_WEEK: int = int(_get("MAX_SHARES_PER_WEEK", "3"))  # Tối đa 3 lần share/tuần/team
 # Ngày bắt đầu thử thách (YYYY-MM-DD, theo ICT). None = chưa cấu hình, bot dùng #week_N từ user.

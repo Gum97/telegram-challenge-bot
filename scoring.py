@@ -4,6 +4,7 @@ scoring.py - Chấm điểm bằng AI (OpenAI), kèm fallback heuristic để te
 
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 
@@ -16,6 +17,55 @@ if not config.USE_FAKE_AI:
     client = OpenAI(api_key=config.OPENAI_API_KEY)
 
 
+# ── Prompt management (file-based, no DB) ────────────────────────────────
+
+def _load_prompts() -> dict:
+    """Load custom prompts from JSON file."""
+    if os.path.exists(config.PROMPTS_FILE):
+        try:
+            with open(config.PROMPTS_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error("Failed to load prompts file: %s", e)
+    return {}
+
+
+def _save_prompts(data: dict) -> None:
+    """Save custom prompts to JSON file."""
+    with open(config.PROMPTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
+
+def get_prompt(key: str, default: str | None = None) -> str | None:
+    """Get a prompt by key; returns default if not customized."""
+    prompts = _load_prompts()
+    return prompts.get(key, default)
+
+
+def has_custom_prompt(key: str) -> bool:
+    """Check if a prompt has been customized."""
+    return key in _load_prompts()
+
+
+def set_prompt(key: str, value: str) -> None:
+    """Set a custom prompt (admin only, enforced by caller)."""
+    prompts = _load_prompts()
+    prompts[key] = value[:config.MAX_PROMPT_LENGTH]
+    _save_prompts(prompts)
+
+
+def reset_prompt(key: str) -> None:
+    """Reset a prompt to default (remove custom override)."""
+    prompts = _load_prompts()
+    prompts.pop(key, None)
+    _save_prompts(prompts)
+
+
+def list_prompt_keys() -> list[str]:
+    """List all available prompt keys."""
+    return ["checkin", "sharing"]
+
+
 @dataclass
 class CheckinResult:
     valid: bool
@@ -25,6 +75,7 @@ class CheckinResult:
 @dataclass
 class SharingResult:
     score: int
+    category: int
     novelty: int
     practicality: int
     workflow_clarity: int
@@ -33,13 +84,14 @@ class SharingResult:
 
 
 def _has_numeric_summary(text: str) -> bool:
-    """Kiểm tra xem text có chứa tóm tắt bằng số liệu không (ít nhất 2 dấu hiệu)."""
+    """Kiểm tra xem text có chứa tóm tắt số liệu cuộc họp không (ít nhất 2 dấu hiệu)."""
     numeric_hits = 0
     if re.search(r"\b\d+\b", text):
         numeric_hits += 1
-    if re.search(r"\b\d+\s*/\s*\d+\b", text):
+    if re.search(r"\d{1,2}/\d{1,2}/\d{2,4}", text):
         numeric_hits += 1
-    keywords = ["người", "thiếu", "vấn đề", "resolved", "missing", "participants", "attended", "open issues", "new issues", "tồn", "phát sinh"]
+    keywords = ["tham dự", "vắng", "vấn đề", "raised", "raise", "next action", "action", "tồn đọng",
+                 "người", "thiếu", "resolved", "missing", "participants", "attended"]
     if any(k.lower() in text.lower() for k in keywords):
         numeric_hits += 1
     return numeric_hits >= 2
@@ -59,12 +111,16 @@ def _checkin_fallback(text: str) -> CheckinResult:
 
 CHECKIN_SYSTEM_PROMPT = """Bạn xác thực nội dung check-in họp tuần của một team trong cuộc thi AI Meeting Challenge.
 
+Nội dung check-in là kết quả từ prompt tóm tắt cuộc họp, gồm 1 dòng số liệu ngắn gọn.
+
 Yêu cầu để hợp lệ (tất cả đều phải có):
 1. Hashtag #post và #week_<số> (ví dụ: #week_3)
-2. Ngày check-in (DD/MM/YYYY hoặc tương đương)
-3. Số người tham dự (ví dụ: "9/10 người", "Tham dự: 9 thành viên")
-4. Thông tin về vấn đề tồn đọng tuần trước (đã giải quyết bao nhiêu)
-5. Tổng tồn đọng hiện tại
+2. Ngày diễn ra cuộc họp (DD/MM/YYYY hoặc tương đương)
+3. Số người tham dự
+4. Số người vắng
+5. Số vấn đề được raise lên trong cuộc họp
+6. Số lượng next action trong cuộc họp
+7. Tổng số action còn tồn đọng cộng dồn
 
 Nếu thiếu bất kỳ mục nào, trả về valid=false và nêu rõ thiếu gì.
 Trả về JSON duy nhất, không markdown: {"valid": bool, "reason": "<nhận xét ngắn tiếng Việt>"}"""
@@ -79,7 +135,7 @@ def score_checkin(message_text: str) -> CheckinResult:
             max_completion_tokens=256,
             timeout=15,
             messages=[
-                {"role": "system", "content": CHECKIN_SYSTEM_PROMPT},
+                {"role": "system", "content": get_prompt("checkin", CHECKIN_SYSTEM_PROMPT)},
                 {"role": "user", "content": message_text},
             ],
         )
@@ -139,31 +195,50 @@ def validate_notebooklm_photo(photo_bytes: bytes) -> CheckinResult:
 
 
 SHARING_SYSTEM_PROMPT = """Bạn là giám khảo cuộc thi "AI Meeting Workflow Challenge".
-Chấm bài chia sẻ về cách ứng dụng AI vào công việc thực tế.
+Chấm bài dự thi viết dạng Markdown (tối thiểu 100 từ) về cách ứng dụng AI vào công việc thực tế.
 
-TIÊU CHÍ CHẤM ĐIỂM (tổng 100):
+BÀI DỰ THI thuộc 1 trong 3 nhóm, có TRỌNG SỐ từ cao tới thấp:
+  Nhóm 1 (cao nhất): Đề xuất Quy trình họp Team hiệu quả với AI
+  Nhóm 2 (trung bình): Chia sẻ quy trình cá nhân/team/phòng ban đã/đang/sắp dùng AI để tối ưu hiệu suất
+  Nhóm 3 (thấp nhất): Chia sẻ, nhận xét, đánh giá về tin tức/sự kiện AI trên mạng
 
-1. novelty (0-33): Tính mới / sáng tạo
-   - 25-33: Cách dùng AI độc đáo, chưa phổ biến, có twist riêng
-   - 15-24: Có ý tưởng hay nhưng khá phổ biến (dùng ChatGPT viết email, tóm tắt...)
-   - 0-14: Quá generic, ai cũng biết, không có gì mới
+Hãy xác định bài thuộc nhóm nào và áp dụng trọng số tương ứng.
 
-2. practicality (0-33): Tính thực tế / áp dụng được
-   - 25-33: Có kết quả đo lường cụ thể (số liệu trước/sau), team đã áp dụng thực tế
-   - 15-24: Có thể áp dụng nhưng thiếu số liệu hoặc chưa thử thực tế
-   - 0-14: Lý thuyết suông, không rõ áp dụng thế nào
+YÊU CẦU BÀI VIẾT:
+- Có raise vấn đề rõ ràng
+- Có lập luận logic
+- Có ví dụ minh hoạ
+Nếu thiếu 1 trong 3 yếu tố trên, trừ điểm tương ứng và ghi rõ trong feedback.
 
-3. workflow_clarity (0-34): Độ rõ ràng workflow
-   - 25-34: Mô tả rõ từng bước: input → tool/prompt → output, người khác có thể làm theo
-   - 15-24: Có mô tả nhưng thiếu chi tiết, khó reproduce
-   - 0-14: Mơ hồ, không rõ quy trình
+TIÊU CHÍ CHẤM ĐIỂM (tổng tối đa 80):
+
+1. novelty (0-26): Tính mới / sáng tạo
+   - 20-26: Cách dùng AI độc đáo, chưa phổ biến, có twist riêng
+   - 12-19: Có ý tưởng hay nhưng khá phổ biến
+   - 0-11: Quá generic, ai cũng biết, không có gì mới
+
+2. practicality (0-27): Tính thực tế / áp dụng được
+   - 20-27: Có kết quả đo lường cụ thể (số liệu trước/sau), đã áp dụng thực tế
+   - 12-19: Có thể áp dụng nhưng thiếu số liệu hoặc chưa thử thực tế
+   - 0-11: Lý thuyết suông, không rõ áp dụng thế nào
+
+3. workflow_clarity (0-27): Độ rõ ràng workflow
+   - 20-27: Mô tả rõ từng bước: input → tool/prompt → output, người khác có thể làm theo
+   - 12-19: Có mô tả nhưng thiếu chi tiết, khó reproduce
+   - 0-11: Mơ hồ, không rõ quy trình
+
+TRỌNG SỐ NHÓM:
+- Nhóm 1: Chấm đúng thang điểm (tối đa 80)
+- Nhóm 2: Giảm nhẹ 5-10% so với bài cùng chất lượng ở Nhóm 1
+- Nhóm 3: Giảm 15-25% so với bài cùng chất lượng ở Nhóm 1
 
 OUTPUT: Trả về JSON duy nhất, không markdown:
 {
+  "category": <1|2|3>,
   "novelty": <int>,
   "practicality": <int>,
   "workflow_clarity": <int>,
-  "score": <int tổng 3 tiêu chí>,
+  "score": <int tổng 3 tiêu chí, tối đa 80>,
   "feedback": "<nhận xét 2-3 câu bằng tiếng Việt, gợi ý cải thiện>",
   "highlight": "<1 câu tóm tắt điểm nổi bật nhất của bài, KHÔNG trích dẫn nội dung gốc>"
 }"""
@@ -219,18 +294,18 @@ def is_duplicate_topic(new_content: str, previous_contents: list[str]) -> tuple[
 def score_sharing(post_content: str) -> SharingResult:
     if config.USE_FAKE_AI:
         length = len(post_content)
-        novelty = min(33, max(10, length // 40))
-        practicality = 20 if any(k in post_content.lower() for k in ["workflow", "quy trình", "team", "ai", "meeting", "task"]) else 12
-        workflow = 22 if any(k in post_content.lower() for k in ["bước", "step", "1.", "2.", "3."]) else 15
-        score = min(100, novelty + practicality + workflow)
-        return SharingResult(score=score, novelty=novelty, practicality=practicality, workflow_clarity=workflow, feedback="Test mode: cần AI thật để chấm chính xác hơn.", highlight="Bài sharing đã được chấm ở chế độ test.")
+        novelty = min(26, max(8, length // 50))
+        practicality = min(27, 16 if any(k in post_content.lower() for k in ["workflow", "quy trình", "team", "ai", "meeting", "task"]) else 10)
+        workflow = min(27, 18 if any(k in post_content.lower() for k in ["bước", "step", "1.", "2.", "3."]) else 12)
+        score = min(80, novelty + practicality + workflow)
+        return SharingResult(score=score, category=2, novelty=novelty, practicality=practicality, workflow_clarity=workflow, feedback="Test mode: cần AI thật để chấm chính xác hơn.", highlight="Bài dự thi đã được chấm ở chế độ test.")
     try:
         response = client.chat.completions.create(
             model=config.OPENAI_MODEL,
             max_completion_tokens=512,
             timeout=30,
             messages=[
-                {"role": "system", "content": SHARING_SYSTEM_PROMPT},
+                {"role": "system", "content": get_prompt("sharing", SHARING_SYSTEM_PROMPT)},
                 {"role": "user", "content": post_content},
             ],
         )
@@ -238,7 +313,7 @@ def score_sharing(post_content: str) -> SharingResult:
             raise RuntimeError("AI returned empty response")
         raw = re.sub(r"^```json\s*|```$", "", response.choices[0].message.content.strip(), flags=re.MULTILINE).strip()
         data = json.loads(raw)
-        return SharingResult(score=int(data["score"]), novelty=int(data["novelty"]), practicality=int(data["practicality"]), workflow_clarity=int(data["workflow_clarity"]), feedback=data["feedback"], highlight=data["highlight"])
+        return SharingResult(score=min(80, int(data["score"])), category=int(data.get("category", 2)), novelty=int(data["novelty"]), practicality=int(data["practicality"]), workflow_clarity=int(data["workflow_clarity"]), feedback=data["feedback"], highlight=data["highlight"])
     except Exception as e:
         logger.error("score_sharing error: %s", e)
         raise RuntimeError(f"AI scoring failed: {e}") from e
