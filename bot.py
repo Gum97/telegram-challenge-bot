@@ -163,8 +163,10 @@ async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE
         bot_me = await context.bot.get_me()
         bot_link = f"@{bot_me.username}" if bot_me.username else "bot"
         await update.message.reply_text("🎉")
+        guide_link = '<a href="https://docs.google.com/document/d/1yC_0CVwUNiTwhc5LDIpODxocB0CPjyopqrdhzd3YYv0/edit?tab=t.0">hướng dẫn NotebookLM</a>'
         await update.message.reply_text(
             f"🎊 Chào mừng <b>{mention}</b> đến với nhóm <b>Thử Thách AI Meeting</b>! 🚀\n\n"
+            f"📖 Xem {guide_link} để biết cách tổng hợp cuộc họp.\n\n"
             f"👉 Nhắn riêng cho {bot_link} để bắt đầu nhé! 💬",
             parse_mode="HTML",
         )
