@@ -44,8 +44,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 ICT = timezone(timedelta(hours=7))
 
-# ConversationHandler states — dangki
-WAITING_TEAM_NAME = 0
+# ConversationHandler states — dangki (multi-step)
+WAITING_USER_NAME = 0
+WAITING_TEAM_NAME = 1
+WAITING_MEETING_FREQ = 2
+WAITING_MEMBER_COUNT = 3
+WAITING_MEMBER_LIST = 4
 # ConversationHandler states — checkin
 WAITING_CHECKIN_PHOTO = 10
 WAITING_CHECKIN_CONTENT = 11
@@ -145,6 +149,26 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(text, reply_markup=_main_menu_keyboard(registered))
 
 
+# ── Chào mừng thành viên mới join group ──────────────────────────────────
+
+async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Gửi tin chào mừng khi có người mới join group."""
+    for member in update.message.new_chat_members:
+        if member.is_bot:
+            continue
+        mention = f"@{member.username}" if member.username else member.first_name
+        await update.message.reply_text(
+            f"👋 Chào mừng {mention} đến với nhóm <b>Thử Thách AI Meeting</b>!\n\n"
+            "🤖 Mình là bot hỗ trợ cuộc thi. Nhắn riêng cho mình để:\n"
+            "  📝 Đăng ký team — /dangki\n"
+            "  📋 Check-in tuần — /checkin\n"
+            "  💡 Nộp bài dự thi — /share\n"
+            "  📊 Xem bảng xếp hạng — /leaderboard\n\n"
+            "Bấm /help để xem hướng dẫn chi tiết nhé!",
+            parse_mode="HTML",
+        )
+
+
 # ── /help ────────────────────────────────────────────────────────────────
 
 HELP_TEXT = (
@@ -168,10 +192,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ── Callback query handler (xử lý buttons) ──────────────────────────────
 
-async def _safe_edit(query, text: str, reply_markup=None) -> None:
+async def _safe_edit(query, text: str, reply_markup=None, parse_mode=None) -> None:
     """Edit message, bỏ qua lỗi nếu nội dung không thay đổi."""
     try:
-        await query.edit_message_text(text, reply_markup=reply_markup)
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
     except BadRequest as e:
         if "Message is not modified" not in str(e):
             raise
@@ -209,8 +233,8 @@ async def dangki_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
         )
         return ConversationHandler.END
 
-    await _safe_edit(query, "📝 Nhập tên team của bạn:")
-    return WAITING_TEAM_NAME
+    await _safe_edit(query, "📝 <b>Bước 1/5</b> — Nhập tên của bạn:", parse_mode="HTML")
+    return WAITING_USER_NAME
 
 
 async def cmd_dangki(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -224,7 +248,17 @@ async def cmd_dangki(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         )
         return ConversationHandler.END
 
-    await update.message.reply_text("📝 Nhập tên team của bạn:")
+    await update.message.reply_text("📝 <b>Bước 1/5</b> — Nhập tên của bạn:", parse_mode="HTML")
+    return WAITING_USER_NAME
+
+
+async def receive_user_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    name = update.message.text.strip()
+    if len(name) < 2 or len(name) > 50:
+        await update.message.reply_text("⚠️ Tên phải từ 2-50 ký tự. Vui lòng nhập lại:")
+        return WAITING_USER_NAME
+    context.user_data["reg_user_name"] = name
+    await update.message.reply_text("📝 <b>Bước 2/5</b> — Nhập tên team của bạn:", parse_mode="HTML")
     return WAITING_TEAM_NAME
 
 
@@ -233,17 +267,56 @@ async def receive_team_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if len(team_name) < 2 or len(team_name) > 50:
         await update.message.reply_text("⚠️ Tên team phải từ 2-50 ký tự. Vui lòng nhập lại:")
         return WAITING_TEAM_NAME
+    context.user_data["reg_team_name"] = team_name
+    await update.message.reply_text("📝 <b>Bước 3/5</b> — Team họp định kỳ bao lâu một lần?\n(VD: 1 tuần/lần, 2 tuần/lần…)", parse_mode="HTML")
+    return WAITING_MEETING_FREQ
+
+
+async def receive_meeting_freq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    freq = update.message.text.strip()
+    if len(freq) < 1 or len(freq) > 100:
+        await update.message.reply_text("⚠️ Vui lòng nhập lại (1-100 ký tự):")
+        return WAITING_MEETING_FREQ
+    context.user_data["reg_meeting_freq"] = freq
+    await update.message.reply_text("📝 <b>Bước 4/5</b> — Team có bao nhiêu thành viên?", parse_mode="HTML")
+    return WAITING_MEMBER_COUNT
+
+
+async def receive_member_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    txt = update.message.text.strip()
+    if not txt.isdigit() or int(txt) < 1 or int(txt) > 999:
+        await update.message.reply_text("⚠️ Vui lòng nhập một số hợp lệ (1-999):")
+        return WAITING_MEMBER_COUNT
+    context.user_data["reg_member_count"] = txt
+    await update.message.reply_text("📝 <b>Bước 5/5</b> — Liệt kê tên các member chính trong team:\n(Mỗi người một dòng hoặc cách nhau bằng dấu phẩy)", parse_mode="HTML")
+    return WAITING_MEMBER_LIST
+
+
+async def receive_member_list(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    members = update.message.text.strip()
+    if len(members) < 2 or len(members) > 500:
+        await update.message.reply_text("⚠️ Danh sách phải từ 2-500 ký tự. Vui lòng nhập lại:")
+        return WAITING_MEMBER_LIST
 
     user = update.effective_user
     team = sheets.register_team(
         telegram_user_id=user.id,
         username=_username(update),
-        team_name=team_name,
+        user_name=context.user_data.get("reg_user_name", ""),
+        team_name=context.user_data.get("reg_team_name", ""),
+        meeting_freq=context.user_data.get("reg_meeting_freq", ""),
+        member_count=context.user_data.get("reg_member_count", ""),
+        member_list=members,
     )
 
+    # Cleanup temp data
+    for key in ("reg_user_name", "reg_team_name", "reg_meeting_freq", "reg_member_count"):
+        context.user_data.pop(key, None)
+
     await update.message.reply_text(
-        f"✅ Đã đăng ký team: {team['team_name']} ({team['team_id']})\n\n"
+        f"✅ Đã đăng ký team: <b>{team['team_name']}</b> ({team['team_id']})\n\n"
         "Bây giờ bạn có thể sử dụng các chức năng bên dưới:",
+        parse_mode="HTML",
         reply_markup=_main_menu_keyboard(registered=True),
     )
     return ConversationHandler.END
@@ -1038,8 +1111,20 @@ def main() -> None:
             ),
         ],
         states={
+            WAITING_USER_NAME: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_user_name),
+            ],
             WAITING_TEAM_NAME: [
                 MessageHandler(filters.TEXT & ~filters.COMMAND, receive_team_name),
+            ],
+            WAITING_MEETING_FREQ: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_meeting_freq),
+            ],
+            WAITING_MEMBER_COUNT: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_member_count),
+            ],
+            WAITING_MEMBER_LIST: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, receive_member_list),
             ],
             WAITING_CHECKIN_PHOTO: [
                 MessageHandler(filters.PHOTO, checkin_receive_photo),
@@ -1065,6 +1150,7 @@ def main() -> None:
         per_message=False,
     )
 
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, welcome_new_members))
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("prompt", cmd_prompt))

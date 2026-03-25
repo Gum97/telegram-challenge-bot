@@ -78,6 +78,16 @@ def ensure_schema() -> None:
             except Exception as e:
                 logger.warning("ensure_schema: không thể mở rộng sheet '%s': %s", tab, e)
 
+        # Thêm cột thiếu vào Teams nếu chưa có
+        ws_teams = spreadsheet.worksheet(config.SHEET_TEAMS)
+        teams_headers = ws_teams.row_values(1)
+        for col_name in ["user_name", "meeting_freq", "member_count", "member_list"]:
+            if col_name not in teams_headers:
+                next_col = len(teams_headers) + 1
+                ws_teams.update_cell(1, next_col, col_name)
+                teams_headers.append(col_name)
+                logger.info("Đã thêm cột '%s' vào sheet Teams (cột %d).", col_name, next_col)
+
         # Thêm cột photo_url vào Checkins nếu chưa có
         ws = spreadsheet.worksheet(config.SHEET_CHECKINS)
         headers = ws.row_values(1)
@@ -89,14 +99,22 @@ def ensure_schema() -> None:
         logger.warning("ensure_schema: lỗi: %s", e)
 
 
-def register_team(telegram_user_id: int, username: str, team_name: str) -> dict:
+def register_team(telegram_user_id: int, username: str, team_name: str,
+                   user_name: str = "", meeting_freq: str = "",
+                   member_count: str = "", member_list: str = "") -> dict:
     if config.USE_LOCAL_STORAGE:
         data = _load_local()
         for row in data["Teams"]:
             if str(row["telegram_user_id"]) == str(telegram_user_id):
                 return row
         team_id = f"team_{len(data['Teams']) + 1}"
-        row = {"team_id": team_id, "team_name": team_name, "telegram_user_id": str(telegram_user_id), "username": username, "registered_at": datetime.utcnow().isoformat()}
+        row = {
+            "team_id": team_id, "team_name": team_name,
+            "telegram_user_id": str(telegram_user_id), "username": username,
+            "user_name": user_name, "meeting_freq": meeting_freq,
+            "member_count": member_count, "member_list": member_list,
+            "registered_at": datetime.utcnow().isoformat(),
+        }
         data["Teams"].append(row)
         _save_local(data)
         return row
@@ -108,8 +126,15 @@ def register_team(telegram_user_id: int, username: str, team_name: str) -> dict:
             return row
     team_id = f"team_{len(all_rows) + 1}"
     now = datetime.utcnow().isoformat()
-    ws.append_row([team_id, team_name, str(telegram_user_id), username, now])
-    return {"team_id": team_id, "team_name": team_name, "telegram_user_id": telegram_user_id, "username": username, "registered_at": now}
+    ws.append_row([team_id, team_name, str(telegram_user_id), username,
+                   user_name, meeting_freq, member_count, member_list, now])
+    return {
+        "team_id": team_id, "team_name": team_name,
+        "telegram_user_id": telegram_user_id, "username": username,
+        "user_name": user_name, "meeting_freq": meeting_freq,
+        "member_count": member_count, "member_list": member_list,
+        "registered_at": now,
+    }
 
 
 def get_team_by_user(telegram_user_id: int) -> Optional[dict]:
