@@ -393,7 +393,9 @@ async def checkin_button_handler(update: Update, context: ContextTypes.DEFAULT_T
     await _safe_edit(
         query,
         "📋 Check-in tuần — Bước 1/2\n\n"
+        '📖 Trước khi check-in, hãy xem <a href="https://docs.google.com/document/d/1yC_0CVwUNiTwhc5LDIpODxocB0CPjyopqrdhzd3YYv0/edit?tab=t.0">hướng dẫn NotebookLM</a> để biết cách tổng hợp cuộc họp.\n\n'
         "📸 Gửi ảnh chụp màn hình NotebookLM mới nhất của bạn:",
+        parse_mode="HTML",
     )
     return WAITING_CHECKIN_PHOTO
 
@@ -452,7 +454,9 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     # Bắt đầu flow từng bước
     await message.reply_text(
         "📋 Check-in tuần — Bước 1/2\n\n"
+        '📖 Trước khi check-in, hãy xem <a href="https://docs.google.com/document/d/1yC_0CVwUNiTwhc5LDIpODxocB0CPjyopqrdhzd3YYv0/edit?tab=t.0">hướng dẫn NotebookLM</a> để biết cách tổng hợp cuộc họp.\n\n'
         "📸 Gửi ảnh chụp màn hình NotebookLM mới nhất của bạn:",
+        parse_mode="HTML",
     )
     return WAITING_CHECKIN_PHOTO
 
