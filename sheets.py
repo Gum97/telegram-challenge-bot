@@ -89,17 +89,17 @@ def _expand_sheet(ws) -> None:
 
 
 def _sanitize_cell(value) -> str:
-    """Chống formula injection cho Google Sheets."""
+    """Chống formula injection cho Google Sheets — thêm ' ở đầu."""
     s = str(value)
-    if s and s[0] in ("=", "+", "-", "@"):
+    if s and s[0] in ("=", "@"):
         return "'" + s
     return s
 
 
 def _append_row_by_headers(ws, record: dict) -> None:
-    """Append row theo đúng thứ tự headers trong sheet."""
+    """Append row theo đúng thứ tự headers trong sheet, sanitize values."""
     headers = ws.row_values(1)
-    row_data = [record.get(h, "") for h in headers]
+    row_data = [_sanitize_cell(record.get(h, "")) for h in headers]
     ws.append_row(row_data)
 
 
@@ -147,10 +147,10 @@ def register_team(telegram_user_id: int, username: str, team_name: str,
                 return row
         team_id = f"team_{len(data['Teams']) + 1}"
         row = {
-            "team_id": team_id, "team_name": _sanitize_cell(team_name),
+            "team_id": team_id, "team_name": team_name,
             "telegram_user_id": str(telegram_user_id), "username": username,
-            "user_name": _sanitize_cell(user_name), "meeting_freq": meeting_freq,
-            "member_count": member_count, "member_list": _sanitize_cell(member_list),
+            "user_name": user_name, "meeting_freq": meeting_freq,
+            "member_count": member_count, "member_list": member_list,
             "registered_at": datetime.now(timezone.utc).isoformat(),
         }
         data["Teams"].append(row)
@@ -165,10 +165,10 @@ def register_team(telegram_user_id: int, username: str, team_name: str,
     team_id = f"team_{len(all_rows) + 1}"
     now = datetime.now(timezone.utc).isoformat()
     record = {
-        "team_id": team_id, "team_name": _sanitize_cell(team_name),
+        "team_id": team_id, "team_name": team_name,
         "telegram_user_id": str(telegram_user_id), "username": username,
-        "user_name": _sanitize_cell(user_name), "meeting_freq": meeting_freq,
-        "member_count": member_count, "member_list": _sanitize_cell(member_list),
+        "user_name": user_name, "meeting_freq": meeting_freq,
+        "member_count": member_count, "member_list": member_list,
         "registered_at": now,
     }
     _append_row_by_headers(ws, record)

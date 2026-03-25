@@ -67,7 +67,7 @@ def build_share_forward(
 async def post_weekly_leaderboard(bot, week: Optional[int] = None) -> None:
     try:
         standings = sheets.compute_and_save_leaderboard()
-        await bot.send_message(chat_id=config.GROUP_CHAT_ID, text=format_leaderboard(standings, week=week), message_thread_id=config.GROUP_TOPIC_ID)
+        await bot.send_message(chat_id=config.GROUP_CHAT_ID, text=format_leaderboard(standings, week=week), message_thread_id=config.GROUP_TOPIC_ID, parse_mode="HTML")
         logger.info("Weekly leaderboard posted to group")
     except Exception as e:
         logger.error("Failed to post weekly leaderboard: %s", e)

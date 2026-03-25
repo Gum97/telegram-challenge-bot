@@ -367,8 +367,16 @@ async def checkin_button_handler(update: Update, context: ContextTypes.DEFAULT_T
 
     context.user_data["checkin_team"] = team
 
-    # Check trùng ngay từ đầu
+    # Check challenge kết thúc + trùng ngay từ đầu
     week = _current_week()
+    if week is not None and week > config.TOTAL_WEEKS:
+        await _safe_edit(
+            query,
+            f"⚠️ Thử thách đã kết thúc (tuần {config.TOTAL_WEEKS}/{config.TOTAL_WEEKS}).",
+            reply_markup=_main_menu_keyboard(registered=True),
+        )
+        _checkin_cleanup(context)
+        return ConversationHandler.END
     if week is not None and sheets.team_already_checked_in(team["team_id"], week):
         await _safe_edit(
             query,
@@ -411,8 +419,15 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     context.user_data["checkin_team"] = team
 
-    # Check trùng ngay từ đầu
+    # Check challenge kết thúc + trùng ngay từ đầu
     week = _current_week()
+    if week is not None and week > config.TOTAL_WEEKS:
+        await message.reply_text(
+            f"⚠️ Thử thách đã kết thúc (tuần {config.TOTAL_WEEKS}/{config.TOTAL_WEEKS}).",
+            reply_markup=_main_menu_keyboard(registered=True),
+        )
+        _checkin_cleanup(context)
+        return ConversationHandler.END
     if week is not None and sheets.team_already_checked_in(team["team_id"], week):
         await message.reply_text(
             f"⚠️ Team {team['team_name']} đã check-in tuần {week} rồi.\n"
@@ -640,7 +655,7 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
                 points=points,
                 username=_username(update),
             )
-            await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text, message_thread_id=config.GROUP_TOPIC_ID)
+            await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text, message_thread_id=config.GROUP_TOPIC_ID, parse_mode="HTML")
         except Exception as e:
             logger.error("Failed to forward checkin to group: %s", e)
 
@@ -821,19 +836,16 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
         )
         return WAITING_SHARE_CONTENT
 
-    # Kiểm tra giới hạn số bài/tuần
-    share_count = await asyncio.to_thread(sheets.count_shares_this_week, team["team_id"])
-    if share_count >= config.MAX_SHARES_PER_WEEK:
+    # Kiểm tra giới hạn số bài/tuần + lấy bài cũ để check trùng
+    prev_shares = await asyncio.to_thread(sheets.get_shares_this_week, team["team_id"])
+    if len(prev_shares) >= config.MAX_SHARES_PER_WEEK:
         await message.reply_text(
-            f"⚠️ Team đã nộp {share_count}/{config.MAX_SHARES_PER_WEEK} bài tuần này. "
+            f"⚠️ Team đã nộp {len(prev_shares)}/{config.MAX_SHARES_PER_WEEK} bài tuần này. "
             "Vui lòng đợi tuần sau nhé!",
             reply_markup=_main_menu_keyboard(registered=True),
         )
         context.user_data.pop("share_team", None)
         return ConversationHandler.END
-
-    # Kiểm tra trùng chủ đề
-    prev_shares = await asyncio.to_thread(sheets.get_shares_this_week, team["team_id"])
     if prev_shares:
         prev_contents = [s.get("content", "") for s in prev_shares if s.get("content")]
         is_dup, dup_reason = await asyncio.to_thread(scoring.is_duplicate_topic, submission, prev_contents)
@@ -854,7 +866,7 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
             team_id=team["team_id"],
             team_name=team["team_name"],
             week=week,
-            content=submission[:5000],
+            content=submission[:30000],
             score=result.score,
             feedback=result.feedback,
         )
@@ -893,7 +905,7 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
                 username=_username(update),
                 is_new_best=is_new_best,
             )
-            await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text, message_thread_id=config.GROUP_TOPIC_ID)
+            await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text, message_thread_id=config.GROUP_TOPIC_ID, parse_mode="HTML")
         except Exception as e:
             logger.error("Failed to forward share to group: %s", e)
 
@@ -1111,7 +1123,7 @@ async def cmd_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.error("Leaderboard error: %s", e)
         text = "❌ Không tải được leaderboard lúc này."
 
-    sent = await update.message.reply_text(text)
+    sent = await update.message.reply_text(text, parse_mode="HTML")
 
     # Xoá cả lệnh user và reply của bot sau 10 giây
     context.job_queue.run_once(
@@ -1133,7 +1145,7 @@ async def weekly_leaderboard_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         standings = sheets.compute_and_save_leaderboard()
         text = "📊 Bảng xếp hạng tuần này:\n\n" + lb.format_leaderboard(standings)
-        await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=text, message_thread_id=config.GROUP_TOPIC_ID)
+        await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=text, message_thread_id=config.GROUP_TOPIC_ID, parse_mode="HTML")
     except Exception as e:
         logger.error("Weekly leaderboard job error: %s", e)
 
