@@ -159,8 +159,9 @@ async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE
         mention = f"@{member.username}" if member.username else member.first_name
         bot_me = await context.bot.get_me()
         bot_link = f"@{bot_me.username}" if bot_me.username else "bot"
+        # Gửi emoji riêng để trigger hiệu ứng full-screen animation
+        await update.message.reply_text("🎉")
         sent = await update.message.reply_text(
-            f"🎉🎉🎉\n\n"
             f"Chào mừng <b>{mention}</b> đến với nhóm <b>Thử Thách AI Meeting</b>!\n\n"
             f"👉 Nhắn riêng cho {bot_link} để bắt đầu nhé!",
             parse_mode="HTML",
