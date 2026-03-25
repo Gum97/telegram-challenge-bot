@@ -222,6 +222,10 @@ async def dangki_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
 
+    if update.effective_chat.type != ChatType.PRIVATE:
+        await _safe_edit(query, "Vui lòng nhắn riêng cho bot để đăng ký team nhé!")
+        return ConversationHandler.END
+
     user = update.effective_user
     existing = sheets.get_team_by_user(user.id)
     if existing:
@@ -238,6 +242,9 @@ async def dangki_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 
 async def cmd_dangki(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    if not await _dm_only(update, "dangki"):
+        return ConversationHandler.END
+
     user = update.effective_user
     existing = sheets.get_team_by_user(user.id)
     if existing:
