@@ -160,8 +160,9 @@ async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE
         bot_me = await context.bot.get_me()
         bot_link = f"@{bot_me.username}" if bot_me.username else "bot"
         sent = await update.message.reply_text(
-            f"👋 Chào mừng {mention} đến với nhóm <b>Thử Thách AI Meeting</b>!\n\n"
-            f"🤖 Nhắn riêng cho {bot_link} để đăng ký team, check-in và nộp bài dự thi nhé!",
+            f"🎉🎉🎉\n\n"
+            f"Chào mừng <b>{mention}</b> đến với nhóm <b>Thử Thách AI Meeting</b>!\n\n"
+            f"👉 Nhắn riêng cho {bot_link} để bắt đầu nhé!",
             parse_mode="HTML",
         )
         # Lưu welcome message để xóa khi user đăng ký xong
