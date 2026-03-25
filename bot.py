@@ -134,19 +134,22 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     existing = sheets.get_team_by_user(user.id)
 
     registered = existing is not None
+    guide_link = '<a href="https://docs.google.com/document/d/1yC_0CVwUNiTwhc5LDIpODxocB0CPjyopqrdhzd3YYv0/edit?tab=t.0">hướng dẫn NotebookLM</a>'
     if existing:
         text = (
             f"👋 Chào mừng trở lại, {user.first_name}!\n"
             f"🏷 Team của bạn: {existing['team_name']}\n\n"
+            f"📖 Xem {guide_link} để biết cách tổng hợp cuộc họp.\n\n"
             "Chọn chức năng bên dưới:"
         )
     else:
         text = (
             f"👋 Chào mừng {user.first_name} đến với Bot Thử Thách AI Meeting!\n\n"
+            f"📖 Xem {guide_link} để biết cách tổng hợp cuộc họp.\n\n"
             "Bạn chưa đăng ký team. Bấm \"📝 Đăng ký team\" để bắt đầu."
         )
 
-    await update.message.reply_text(text, reply_markup=_main_menu_keyboard(registered))
+    await update.message.reply_text(text, parse_mode="HTML", reply_markup=_main_menu_keyboard(registered))
 
 
 # ── Chào mừng thành viên mới join group ──────────────────────────────────
