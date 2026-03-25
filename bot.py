@@ -149,7 +149,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "Bạn chưa đăng ký team. Bấm \"📝 Đăng ký team\" để bắt đầu."
         )
 
-    await update.message.reply_text(text, parse_mode="HTML", reply_markup=_main_menu_keyboard(registered))
+    await update.message.reply_text(text, parse_mode="HTML", disable_web_page_preview=True, reply_markup=_main_menu_keyboard(registered))
 
 
 # ── Chào mừng thành viên mới join group ──────────────────────────────────
@@ -169,6 +169,7 @@ async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"📖 Xem {guide_link} để biết cách tổng hợp cuộc họp.\n\n"
             f"👉 Nhắn riêng cho {bot_link} để bắt đầu nhé! 💬",
             parse_mode="HTML",
+            disable_web_page_preview=True,
         )
 
 
@@ -195,10 +196,10 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 # ── Callback query handler (xử lý buttons) ──────────────────────────────
 
-async def _safe_edit(query, text: str, reply_markup=None, parse_mode=None) -> None:
+async def _safe_edit(query, text: str, reply_markup=None, parse_mode=None, disable_web_page_preview=False) -> None:
     """Edit message, bỏ qua lỗi nếu nội dung không thay đổi."""
     try:
-        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode)
+        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode, disable_web_page_preview=disable_web_page_preview)
     except BadRequest as e:
         if "Message is not modified" not in str(e):
             raise
@@ -384,6 +385,7 @@ async def checkin_button_handler(update: Update, context: ContextTypes.DEFAULT_T
         '📖 Trước khi check-in, hãy xem <a href="https://docs.google.com/document/d/1yC_0CVwUNiTwhc5LDIpODxocB0CPjyopqrdhzd3YYv0/edit?tab=t.0">hướng dẫn NotebookLM</a> để biết cách tổng hợp cuộc họp.\n\n'
         "📸 Gửi ảnh chụp màn hình NotebookLM mới nhất của bạn:",
         parse_mode="HTML",
+        disable_web_page_preview=True,
     )
     return WAITING_CHECKIN_PHOTO
 
@@ -445,6 +447,7 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         '📖 Trước khi check-in, hãy xem <a href="https://docs.google.com/document/d/1yC_0CVwUNiTwhc5LDIpODxocB0CPjyopqrdhzd3YYv0/edit?tab=t.0">hướng dẫn NotebookLM</a> để biết cách tổng hợp cuộc họp.\n\n'
         "📸 Gửi ảnh chụp màn hình NotebookLM mới nhất của bạn:",
         parse_mode="HTML",
+        disable_web_page_preview=True,
     )
     return WAITING_CHECKIN_PHOTO
 
