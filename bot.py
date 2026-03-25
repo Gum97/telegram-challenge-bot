@@ -69,7 +69,7 @@ def _username(update: Update) -> str:
 
 
 def _extract_week(text: str) -> int | None:
-    m = re.search(r"#week_(\d+)", text, re.IGNORECASE)
+    m = re.search(r"#?week[_\s]*(\d+)", text, re.IGNORECASE)
     return int(m.group(1)) if m else None
 
 
@@ -152,34 +152,37 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # ── Chào mừng thành viên mới join group ──────────────────────────────────
 
 async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Gửi tin chào mừng khi có người mới join group."""
+    """Gửi tin chào mừng khi có người mới join group (vào General, không vào topic)."""
     for member in update.message.new_chat_members:
         if member.is_bot:
             continue
         mention = f"@{member.username}" if member.username else member.first_name
-        await update.message.reply_text(
+        bot_me = await context.bot.get_me()
+        bot_link = f"@{bot_me.username}" if bot_me.username else "bot"
+        sent = await update.message.reply_text(
             f"👋 Chào mừng {mention} đến với nhóm <b>Thử Thách AI Meeting</b>!\n\n"
-            "🤖 Mình là bot hỗ trợ cuộc thi. Nhắn riêng cho mình để:\n"
-            "  📝 Đăng ký team — /dangki\n"
-            "  📋 Check-in tuần — /checkin\n"
-            "  💡 Nộp bài dự thi — /share\n"
-            "  📊 Xem bảng xếp hạng — /leaderboard\n\n"
-            "Bấm /help để xem hướng dẫn chi tiết nhé!",
+            f"🤖 Nhắn riêng cho {bot_link} để đăng ký team, check-in và nộp bài dự thi nhé!",
             parse_mode="HTML",
         )
+        # Lưu welcome message để xóa khi user đăng ký xong
+        welcome_key = f"welcome_{member.id}"
+        context.bot_data[welcome_key] = {
+            "chat_id": sent.chat_id,
+            "message_id": sent.message_id,
+        }
 
 
 # ── /help ────────────────────────────────────────────────────────────────
 
 HELP_TEXT = (
     "📖 Hướng dẫn sử dụng bot:\n\n"
-    "1️⃣ /dangki — Đăng ký tên team của bạn\n"
+    "1️⃣ /dangki — Đăng ký team (tên, thành viên, lịch họp)\n"
     "2️⃣ /checkin — Check-in tuần (20đ/tuần, tối đa 6 tuần = 120đ)\n"
     "   Gửi ảnh NotebookLM + kết quả prompt tóm tắt cuộc họp\n"
     "3️⃣ /share — Nộp bài dự thi (tối đa 80đ, tính lần cao nhất)\n"
     "   3 nhóm: Quy trình họp AI > Quy trình AI > Tin tức AI\n"
     "4️⃣ /leaderboard — Xem bảng xếp hạng (trong group)\n\n"
-    "⚠️ Lưu ý: /checkin và /share chỉ hoạt động trong DM với bot.\n"
+    "⚠️ Lưu ý: /dangki, /checkin và /share chỉ dùng được trong DM với bot.\n"
     "🏆 Top 10 bài dự thi cao nhất được Hội đồng AI chấm trực tiếp."
 )
 
@@ -232,7 +235,7 @@ async def dangki_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await _safe_edit(
             query,
             f"✅ Bạn đã đăng ký team: {existing['team_name']}\n"
-            "Nếu muốn đổi tên, liên hệ admin.",
+            "Nếu muốn thay đổi thông tin, liên hệ admin.",
             reply_markup=_main_menu_keyboard(registered=True),
         )
         return ConversationHandler.END
@@ -250,7 +253,7 @@ async def cmd_dangki(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if existing:
         await update.message.reply_text(
             f"✅ Bạn đã đăng ký team: {existing['team_name']}\n"
-            "Nếu muốn đổi tên, liên hệ admin.",
+            "Nếu muốn thay đổi thông tin, liên hệ admin.",
             reply_markup=_main_menu_keyboard(registered=True),
         )
         return ConversationHandler.END
@@ -282,7 +285,7 @@ async def receive_team_name(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 async def receive_meeting_freq(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     freq = update.message.text.strip()
     if len(freq) < 1 or len(freq) > 100:
-        await update.message.reply_text("⚠️ Vui lòng nhập lại (1-100 ký tự):")
+        await update.message.reply_text("⚠️ Câu trả lời phải từ 1–100 ký tự. Vui lòng nhập lại:")
         return WAITING_MEETING_FREQ
     context.user_data["reg_meeting_freq"] = freq
     await update.message.reply_text("📝 <b>Bước 4/5</b> — Team có bao nhiêu thành viên?", parse_mode="HTML")
@@ -295,7 +298,7 @@ async def receive_member_count(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text("⚠️ Vui lòng nhập một số hợp lệ (1-999):")
         return WAITING_MEMBER_COUNT
     context.user_data["reg_member_count"] = txt
-    await update.message.reply_text("📝 <b>Bước 5/5</b> — Liệt kê tên các member chính trong team:\n(Mỗi người một dòng hoặc cách nhau bằng dấu phẩy)", parse_mode="HTML")
+    await update.message.reply_text("📝 <b>Bước 5/5</b> — Liệt kê tên các thành viên chính trong team:\n(Mỗi người một dòng hoặc cách nhau bằng dấu phẩy)", parse_mode="HTML")
     return WAITING_MEMBER_LIST
 
 
@@ -326,6 +329,19 @@ async def receive_member_list(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode="HTML",
         reply_markup=_main_menu_keyboard(registered=True),
     )
+
+    # Auto xóa welcome message trong group
+    welcome_key = f"welcome_{user.id}"
+    welcome_info = context.bot_data.pop(welcome_key, None)
+    if welcome_info:
+        try:
+            await context.bot.delete_message(
+                chat_id=welcome_info["chat_id"],
+                message_id=welcome_info["message_id"],
+            )
+        except Exception:
+            pass  # Message có thể đã bị xóa hoặc bot thiếu quyền
+
     return ConversationHandler.END
 
 
@@ -346,6 +362,10 @@ async def checkin_button_handler(update: Update, context: ContextTypes.DEFAULT_T
     query = update.callback_query
     await query.answer()
 
+    if update.effective_chat.type != ChatType.PRIVATE:
+        await _safe_edit(query, "Vui lòng nhắn riêng cho bot để check-in nhé!")
+        return ConversationHandler.END
+
     user = update.effective_user
     team = sheets.get_team_by_user(user.id)
     if not team:
@@ -357,6 +377,19 @@ async def checkin_button_handler(update: Update, context: ContextTypes.DEFAULT_T
         return ConversationHandler.END
 
     context.user_data["checkin_team"] = team
+
+    # Check trùng ngay từ đầu
+    week = _current_week()
+    if week is not None and sheets.team_already_checked_in(team["team_id"], week):
+        await _safe_edit(
+            query,
+            f"⚠️ Team {team['team_name']} đã check-in tuần {week} rồi.\n"
+            "Hẹn gặp lại tuần sau nhé!",
+            reply_markup=_main_menu_keyboard(registered=True),
+        )
+        _checkin_cleanup(context)
+        return ConversationHandler.END
+
     await _safe_edit(
         query,
         "📋 Check-in tuần — Bước 1/2\n\n"
@@ -386,10 +419,34 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 
     context.user_data["checkin_team"] = team
 
-    # Nếu gửi ảnh + caption đầy đủ → xử lý thẳng (shortcut)
+    # Check trùng ngay từ đầu
+    week = _current_week()
+    if week is not None and sheets.team_already_checked_in(team["team_id"], week):
+        await message.reply_text(
+            f"⚠️ Team {team['team_name']} đã check-in tuần {week} rồi.\n"
+            "Hẹn gặp lại tuần sau nhé!",
+            reply_markup=_main_menu_keyboard(registered=True),
+        )
+        _checkin_cleanup(context)
+        return ConversationHandler.END
+
+    # Nếu gửi ảnh + caption đầy đủ → validate ảnh + xử lý thẳng (shortcut)
     text = message.caption or message.text or ""
     submission = re.sub(r"^/checkin\s*", "", text, flags=re.IGNORECASE).strip()
-    if bool(message.photo) and submission and (_current_week() is not None or _extract_week(submission)):
+    if bool(message.photo) and submission and (week is not None or _extract_week(submission)):
+        photo_id = message.photo[-1].file_id
+        await message.reply_text("⏳ Đang xác minh ảnh NotebookLM...")
+        tg_file = await context.bot.get_file(photo_id)
+        photo_bytes = bytes(await tg_file.download_as_bytearray())
+        photo_result = await asyncio.to_thread(scoring.validate_notebooklm_photo, photo_bytes)
+        if not photo_result.valid:
+            await message.reply_text(
+                f"❌ Ảnh không hợp lệ: {photo_result.reason}\n\n"
+                "Vui lòng gửi lại ảnh chụp màn hình NotebookLM."
+            )
+            return WAITING_CHECKIN_PHOTO
+        context.user_data["checkin_photo_id"] = photo_id
+        context.user_data["checkin_photo_bytes"] = photo_bytes
         return await _process_checkin(update, context, submission)
 
     # Bắt đầu flow từng bước
@@ -403,13 +460,16 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
 async def checkin_receive_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Bước 1: Nhận và xác minh ảnh NotebookLM."""
     message = update.effective_message
+    if not message.photo:
+        await message.reply_text("⚠️ Không nhận được ảnh. Vui lòng gửi lại.")
+        return WAITING_CHECKIN_PHOTO
     photo_id = message.photo[-1].file_id
 
     # Tải ảnh và xác minh bằng AI vision
     await message.reply_text("⏳ Đang xác minh ảnh NotebookLM...")
     tg_file = await context.bot.get_file(photo_id)
     photo_bytes = bytes(await tg_file.download_as_bytearray())
-    photo_result = scoring.validate_notebooklm_photo(photo_bytes)
+    photo_result = await asyncio.to_thread(scoring.validate_notebooklm_photo, photo_bytes)
 
     if not photo_result.valid:
         await message.reply_text(
@@ -420,6 +480,7 @@ async def checkin_receive_photo(update: Update, context: ContextTypes.DEFAULT_TY
         return WAITING_CHECKIN_PHOTO
 
     context.user_data["checkin_photo_id"] = photo_id
+    context.user_data["checkin_photo_bytes"] = photo_bytes
 
     # Nếu ảnh kèm caption đầy đủ → xử lý thẳng
     caption = message.caption or ""
@@ -487,11 +548,14 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         week = _extract_week(submission)
         if week is None:
             await message.reply_text(
-                "❌ Chưa set ngày bắt đầu thử thách và không tìm thấy #week_<số>.\n"
+                "❌ Chưa thiết lập ngày bắt đầu thử thách và không tìm thấy #week_<số>.\n"
                 "Liên hệ admin để /setstart hoặc thêm #week_<số> vào nội dung.",
             )
             return WAITING_CHECKIN_CONTENT
-    elif week > config.TOTAL_WEEKS:
+    if week < 1:
+        await message.reply_text("⚠️ Tuần không hợp lệ.")
+        return WAITING_CHECKIN_CONTENT
+    if week > config.TOTAL_WEEKS:
         await message.reply_text(
             f"⚠️ Thử thách đã kết thúc (tuần {config.TOTAL_WEEKS}/{config.TOTAL_WEEKS}).",
             reply_markup=_main_menu_keyboard(registered=True),
@@ -516,21 +580,25 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
         return ConversationHandler.END
 
     await message.reply_text("⏳ Đang kiểm tra check-in của bạn...")
-    result = scoring.score_checkin(submission)
+    result = await asyncio.to_thread(scoring.score_checkin, submission)
     if not result.valid:
         await message.reply_text(
-            f"❌ Check-in bị từ chối: {result.reason}\n\nVui lòng sửa và gửi lại.",
+            f"❌ Check-in chưa hợp lệ: {result.reason}\n\nVui lòng sửa và gửi lại.",
         )
         return WAITING_CHECKIN_CONTENT
 
-    # Upload ảnh lên S3 (nếu đã cấu hình)
+    # Upload ảnh lên S3 (nếu đã cấu hình) — dùng bytes đã cache
     photo_url: str | None = None
     photo_id = context.user_data.get("checkin_photo_id")
     if photo_id and config.USE_S3:
         try:
-            tg_file = await context.bot.get_file(photo_id)
-            photo_bytes = bytes(await tg_file.download_as_bytearray())
-            photo_url = storage.upload_checkin_photo(photo_bytes, team["team_id"], week)
+            photo_bytes = context.user_data.get("checkin_photo_bytes")
+            if not photo_bytes:
+                tg_file = await context.bot.get_file(photo_id)
+                photo_bytes = bytes(await tg_file.download_as_bytearray())
+            photo_url = await asyncio.to_thread(
+                storage.upload_checkin_photo, photo_bytes, team["team_id"], week
+            )
         except Exception as e:
             logger.error("Failed to upload photo to S3: %s", e)
 
@@ -539,7 +607,8 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
     points = config.CHECKIN_POINTS
 
     try:
-        sheets.save_checkin(
+        await asyncio.to_thread(
+            sheets.save_checkin,
             team_id=team["team_id"],
             team_name=team["team_name"],
             week=week,
@@ -550,8 +619,8 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
             member_count=member_count,
             photo_url=photo_url,
         )
-        sheets.compute_and_save_leaderboard()
-        sheets.update_organizer_details()
+        await asyncio.to_thread(sheets.compute_and_save_leaderboard)
+        await asyncio.to_thread(sheets.update_organizer_details)
     except Exception as e:
         logger.error("Failed to save checkin: %s", e)
         await message.reply_text("❌ Lỗi khi lưu check-in. Vui lòng thử lại sau.")
@@ -576,7 +645,7 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
                 points=points,
                 username=_username(update),
             )
-            await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text)
+            await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text, message_thread_id=config.GROUP_TOPIC_ID)
         except Exception as e:
             logger.error("Failed to forward checkin to group: %s", e)
 
@@ -587,6 +656,7 @@ async def _process_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE, s
 def _checkin_cleanup(context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data.pop("checkin_team", None)
     context.user_data.pop("checkin_photo_id", None)
+    context.user_data.pop("checkin_photo_bytes", None)
 
 
 async def cancel_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
@@ -603,9 +673,13 @@ async def cancel_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 # ── /share (ConversationHandler – 1 bước) ────────────────────────────────
 
 async def share_button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    """Bấm button 'Chia sẻ bài AI' → hướng dẫn + chờ nội dung."""
+    """Bấm button 'Nộp bài dự thi' → hướng dẫn + chờ nội dung."""
     query = update.callback_query
     await query.answer()
+
+    if update.effective_chat.type != ChatType.PRIVATE:
+        await _safe_edit(query, "Vui lòng nhắn riêng cho bot để nộp bài nhé!")
+        return ConversationHandler.END
 
     user = update.effective_user
     team = sheets.get_team_by_user(user.id)
@@ -632,7 +706,7 @@ async def share_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         query,
         "💡 Bài dự thi (tối đa 80 điểm)\n\n"
         + urgency +
-        "Submit nhiều lần được, chỉ tính 1 lần điểm cao nhất.\n"
+        "Nộp nhiều lần được, chỉ tính 1 lần điểm cao nhất.\n"
         "Bài dự thi là private, khi kết thúc cuộc thi mới public.\n"
         "Top 10 bài điểm cao nhất sẽ được Hội đồng AI chấm trực tiếp và trao giải.\n\n"
         "📝 Yêu cầu:\n"
@@ -691,7 +765,7 @@ async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     await message.reply_text(
         "💡 Gửi bài dự thi (100–4000 từ, hỗ trợ Markdown):\n\n"
         + hint
-        + "Submit nhiều lần được, chỉ tính điểm cao nhất.",
+        + "Nộp nhiều lần được, chỉ tính điểm cao nhất.",
     )
     return WAITING_SHARE_CONTENT
 
@@ -703,6 +777,12 @@ async def share_receive_content(update: Update, context: ContextTypes.DEFAULT_TY
     if word_count < 100:
         await update.message.reply_text(
             f"⚠️ Bài quá ngắn ({word_count} từ, 100–4000 từ). Gửi lại:\n"
+            "Gửi /cancel để huỷ.",
+        )
+        return WAITING_SHARE_CONTENT
+    if word_count > 4000:
+        await update.message.reply_text(
+            f"⚠️ Bài quá dài ({word_count} từ, tối đa 4000 từ). Gửi lại:\n"
             "Gửi /cancel để huỷ.",
         )
         return WAITING_SHARE_CONTENT
@@ -722,7 +802,17 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
         )
         return ConversationHandler.END
 
-    week = _extract_week(submission) or 0
+    cw = _current_week()
+    week = cw or _extract_week(submission) or 0
+
+    # Kiểm tra challenge đã kết thúc
+    if cw is not None and cw > config.TOTAL_WEEKS:
+        await message.reply_text(
+            f"⚠️ Thử thách đã kết thúc (tuần {config.TOTAL_WEEKS}/{config.TOTAL_WEEKS}).",
+            reply_markup=_main_menu_keyboard(registered=True),
+        )
+        context.user_data.pop("share_team", None)
+        return ConversationHandler.END
 
     word_count = len(submission.split())
     if word_count < 100:
@@ -730,13 +820,42 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
             f"⚠️ Bài quá ngắn ({word_count} từ, 100–4000 từ). Gửi lại:",
         )
         return WAITING_SHARE_CONTENT
+    if word_count > 4000:
+        await message.reply_text(
+            f"⚠️ Bài quá dài ({word_count} từ, tối đa 4000 từ). Gửi lại:",
+        )
+        return WAITING_SHARE_CONTENT
 
-    prev_best = sheets.get_best_share_score(team["team_id"])
+    # Kiểm tra giới hạn số bài/tuần
+    share_count = await asyncio.to_thread(sheets.count_shares_this_week, team["team_id"])
+    if share_count >= config.MAX_SHARES_PER_WEEK:
+        await message.reply_text(
+            f"⚠️ Team đã nộp {share_count}/{config.MAX_SHARES_PER_WEEK} bài tuần này. "
+            "Vui lòng đợi tuần sau nhé!",
+            reply_markup=_main_menu_keyboard(registered=True),
+        )
+        context.user_data.pop("share_team", None)
+        return ConversationHandler.END
+
+    # Kiểm tra trùng chủ đề
+    prev_shares = await asyncio.to_thread(sheets.get_shares_this_week, team["team_id"])
+    if prev_shares:
+        prev_contents = [s.get("content", "") for s in prev_shares if s.get("content")]
+        is_dup, dup_reason = await asyncio.to_thread(scoring.is_duplicate_topic, submission, prev_contents)
+        if is_dup:
+            await message.reply_text(
+                f"⚠️ Bài có vẻ trùng chủ đề với bài đã nộp tuần này:\n{dup_reason}\n\n"
+                "Vui lòng viết về chủ đề AI khác.",
+            )
+            return WAITING_SHARE_CONTENT
+
+    prev_best = await asyncio.to_thread(sheets.get_best_share_score, team["team_id"])
 
     await message.reply_text("🤖 Đang dùng AI để chấm bài của bạn...")
     try:
-        result = scoring.score_sharing(submission)
-        sheets.save_share(
+        result = await asyncio.to_thread(scoring.score_sharing, submission)
+        await asyncio.to_thread(
+            sheets.save_share,
             team_id=team["team_id"],
             team_name=team["team_name"],
             week=week,
@@ -744,10 +863,10 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
             score=result.score,
             feedback=result.feedback,
         )
-        sheets.compute_and_save_leaderboard()
+        await asyncio.to_thread(sheets.compute_and_save_leaderboard)
     except Exception as e:
         logger.error("Scoring/save failed: %s", e)
-        await message.reply_text("❌ Chấm điểm hoặc lưu thất bại. Vui lòng thử lại sau.")
+        await message.reply_text("❌ Chấm điểm hoặc lưu gặp lỗi. Vui lòng thử lại sau.")
         context.user_data.pop("share_team", None)
         return ConversationHandler.END
 
@@ -779,7 +898,7 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
                 username=_username(update),
                 is_new_best=is_new_best,
             )
-            await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text)
+            await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text, message_thread_id=config.GROUP_TOPIC_ID)
         except Exception as e:
             logger.error("Failed to forward share to group: %s", e)
 
@@ -792,18 +911,25 @@ async def cancel_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> in
     registered = sheets.get_team_by_user(user.id) is not None
     context.user_data.pop("share_team", None)
     await update.message.reply_text(
-        "Đã huỷ chia sẻ.",
+        "Đã huỷ nộp bài.",
         reply_markup=_main_menu_keyboard(registered),
     )
     return ConversationHandler.END
+
+
+def _cleanup_all_flows(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Dọn dẹp user_data của tất cả flows."""
+    _checkin_cleanup(context)
+    context.user_data.pop("share_team", None)
+    for key in ("reg_user_name", "reg_team_name", "reg_meeting_freq", "reg_member_count"):
+        context.user_data.pop(key, None)
 
 
 async def cancel_conversation(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Huỷ mọi flow đang chạy (dangki / checkin / share)."""
     user = update.effective_user
     registered = sheets.get_team_by_user(user.id) is not None
-    _checkin_cleanup(context)
-    context.user_data.pop("share_team", None)
+    _cleanup_all_flows(context)
     await update.message.reply_text(
         "Đã huỷ.",
         reply_markup=_main_menu_keyboard(registered),
@@ -1012,7 +1138,7 @@ async def weekly_leaderboard_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     try:
         standings = sheets.compute_and_save_leaderboard()
         text = "📊 Bảng xếp hạng tuần này:\n\n" + lb.format_leaderboard(standings)
-        await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=text)
+        await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=text, message_thread_id=config.GROUP_TOPIC_ID)
     except Exception as e:
         logger.error("Weekly leaderboard job error: %s", e)
 

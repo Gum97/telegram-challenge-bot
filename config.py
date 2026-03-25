@@ -24,6 +24,9 @@ TELEGRAM_BOT_TOKEN: str = _require("TELEGRAM_BOT_TOKEN")
 GROUP_CHAT_ID_RAW = _get("GROUP_CHAT_ID", "")
 # None nếu chưa cấu hình → bot sẽ không forward lên group
 GROUP_CHAT_ID: int | None = int(GROUP_CHAT_ID_RAW) if GROUP_CHAT_ID_RAW and GROUP_CHAT_ID_RAW != "-1001234567890" else None
+# Topic (thread) ID trong Forum group — None = gửi vào General
+_topic_raw = _get("GROUP_TOPIC_ID", "")
+GROUP_TOPIC_ID: int | None = int(_topic_raw) if _topic_raw else None
 
 # --- Google Sheets / local fallback ---
 GOOGLE_SHEETS_CREDENTIALS_FILE: str = _get("GOOGLE_SHEETS_CREDENTIALS_FILE", "credentials.json")
@@ -39,7 +42,8 @@ USE_FAKE_AI: bool = (not OPENAI_API_KEY) or OPENAI_API_KEY == "sk-..."
 OPENAI_MODEL: str = _get("OPENAI_MODEL", "gpt-4o")
 
 # --- Admin ---
-ADMIN_IDS: set[int] = {479445625, 339028172}
+_admin_raw = _get("ADMIN_IDS", "479445625,339028172")
+ADMIN_IDS: set[int] = {int(x) for x in _admin_raw.split(",") if x.strip()}
 PROMPTS_FILE: str = _get("PROMPTS_FILE", "prompts.json")
 MAX_PROMPT_LENGTH: int = 4000
 

@@ -4,7 +4,7 @@ sheets.py - Tích hợp Google Sheets với fallback lưu local JSON để test.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -36,11 +36,22 @@ def _save_local(data: dict) -> None:
     _db_path().write_text(json.dumps(data, ensure_ascii=False, indent=2))
 
 
+_gs_client = None
+_gs_client_created_at: float = 0
+
+
 def _get_client():
-    creds = Credentials.from_service_account_file(
-        config.GOOGLE_SHEETS_CREDENTIALS_FILE, scopes=SCOPES
-    )
-    return gspread.authorize(creds)
+    global _gs_client, _gs_client_created_at
+    import time as _time
+    now = _time.monotonic()
+    # Cache client for 50 minutes (token expires after 60)
+    if _gs_client is None or (now - _gs_client_created_at) > 3000:
+        creds = Credentials.from_service_account_file(
+            config.GOOGLE_SHEETS_CREDENTIALS_FILE, scopes=SCOPES
+        )
+        _gs_client = gspread.authorize(creds)
+        _gs_client_created_at = now
+    return _gs_client
 
 
 def _get_sheet(tab_name: str):
@@ -51,6 +62,20 @@ def _get_sheet(tab_name: str):
 
 _SHEET_MIN_ROWS = 10000
 _SHEET_MIN_COLS = 50
+
+# Headers mặc định cho từng sheet
+_DEFAULT_HEADERS = {
+    config.SHEET_TEAMS: ["team_id", "team_name", "telegram_user_id", "username",
+                         "user_name", "meeting_freq", "member_count", "member_list",
+                         "registered_at"],
+    config.SHEET_CHECKINS: ["id", "team_id", "team_name", "week", "submitted_at",
+                            "rank", "points", "summary_text", "has_screenshot",
+                            "validated", "member_count", "photo_url"],
+    config.SHEET_SHARES: ["id", "team_id", "team_name", "week", "submitted_at",
+                          "content", "score", "scored_at", "feedback"],
+    config.SHEET_LEADERBOARD: ["team_id", "team_name", "checkin_points",
+                               "sharing_points", "total_points", "last_updated"],
+}
 
 
 def _expand_sheet(ws) -> None:
@@ -63,8 +88,23 @@ def _expand_sheet(ws) -> None:
         )
 
 
+def _sanitize_cell(value) -> str:
+    """Chống formula injection cho Google Sheets."""
+    s = str(value)
+    if s and s[0] in ("=", "+", "-", "@"):
+        return "'" + s
+    return s
+
+
+def _append_row_by_headers(ws, record: dict) -> None:
+    """Append row theo đúng thứ tự headers trong sheet."""
+    headers = ws.row_values(1)
+    row_data = [record.get(h, "") for h in headers]
+    ws.append_row(row_data)
+
+
 def ensure_schema() -> None:
-    """Mở rộng grid tất cả các sheet và thêm cột mới nếu thiếu."""
+    """Mở rộng grid tất cả các sheet, thêm cột mới nếu thiếu, init headers nếu trống."""
     if config.USE_LOCAL_STORAGE:
         return
     try:
@@ -75,26 +115,24 @@ def ensure_schema() -> None:
                 ws = spreadsheet.worksheet(tab)
                 _expand_sheet(ws)
                 logger.info("Sheet '%s': grid OK (%d rows × %d cols).", tab, ws.row_count, ws.col_count)
+
+                # Init headers nếu row 1 trống
+                headers = ws.row_values(1)
+                if not headers and tab in _DEFAULT_HEADERS:
+                    ws.append_row(_DEFAULT_HEADERS[tab])
+                    logger.info("Đã init headers cho sheet '%s'.", tab)
+                    headers = _DEFAULT_HEADERS[tab]
+
+                # Thêm cột thiếu
+                if tab in _DEFAULT_HEADERS:
+                    for col_name in _DEFAULT_HEADERS[tab]:
+                        if col_name not in headers:
+                            next_col = len(headers) + 1
+                            ws.update_cell(1, next_col, col_name)
+                            headers.append(col_name)
+                            logger.info("Đã thêm cột '%s' vào sheet '%s' (cột %d).", col_name, tab, next_col)
             except Exception as e:
-                logger.warning("ensure_schema: không thể mở rộng sheet '%s': %s", tab, e)
-
-        # Thêm cột thiếu vào Teams nếu chưa có
-        ws_teams = spreadsheet.worksheet(config.SHEET_TEAMS)
-        teams_headers = ws_teams.row_values(1)
-        for col_name in ["user_name", "meeting_freq", "member_count", "member_list"]:
-            if col_name not in teams_headers:
-                next_col = len(teams_headers) + 1
-                ws_teams.update_cell(1, next_col, col_name)
-                teams_headers.append(col_name)
-                logger.info("Đã thêm cột '%s' vào sheet Teams (cột %d).", col_name, next_col)
-
-        # Thêm cột photo_url vào Checkins nếu chưa có
-        ws = spreadsheet.worksheet(config.SHEET_CHECKINS)
-        headers = ws.row_values(1)
-        if "photo_url" not in headers:
-            next_col = len(headers) + 1
-            ws.update_cell(1, next_col, "photo_url")
-            logger.info("Đã thêm cột 'photo_url' vào sheet Checkins (cột %d).", next_col)
+                logger.warning("ensure_schema: không thể xử lý sheet '%s': %s", tab, e)
     except Exception as e:
         logger.warning("ensure_schema: lỗi: %s", e)
 
@@ -109,11 +147,11 @@ def register_team(telegram_user_id: int, username: str, team_name: str,
                 return row
         team_id = f"team_{len(data['Teams']) + 1}"
         row = {
-            "team_id": team_id, "team_name": team_name,
+            "team_id": team_id, "team_name": _sanitize_cell(team_name),
             "telegram_user_id": str(telegram_user_id), "username": username,
-            "user_name": user_name, "meeting_freq": meeting_freq,
-            "member_count": member_count, "member_list": member_list,
-            "registered_at": datetime.utcnow().isoformat(),
+            "user_name": _sanitize_cell(user_name), "meeting_freq": meeting_freq,
+            "member_count": member_count, "member_list": _sanitize_cell(member_list),
+            "registered_at": datetime.now(timezone.utc).isoformat(),
         }
         data["Teams"].append(row)
         _save_local(data)
@@ -125,16 +163,16 @@ def register_team(telegram_user_id: int, username: str, team_name: str,
         if str(row["telegram_user_id"]) == str(telegram_user_id):
             return row
     team_id = f"team_{len(all_rows) + 1}"
-    now = datetime.utcnow().isoformat()
-    ws.append_row([team_id, team_name, str(telegram_user_id), username,
-                   user_name, meeting_freq, member_count, member_list, now])
-    return {
-        "team_id": team_id, "team_name": team_name,
-        "telegram_user_id": telegram_user_id, "username": username,
-        "user_name": user_name, "meeting_freq": meeting_freq,
-        "member_count": member_count, "member_list": member_list,
+    now = datetime.now(timezone.utc).isoformat()
+    record = {
+        "team_id": team_id, "team_name": _sanitize_cell(team_name),
+        "telegram_user_id": str(telegram_user_id), "username": username,
+        "user_name": _sanitize_cell(user_name), "meeting_freq": meeting_freq,
+        "member_count": member_count, "member_list": _sanitize_cell(member_list),
         "registered_at": now,
     }
+    _append_row_by_headers(ws, record)
+    return record
 
 
 def get_team_by_user(telegram_user_id: int) -> Optional[dict]:
@@ -159,26 +197,15 @@ def count_checkins_for_week(week: int) -> int:
 
 
 def team_already_checked_in(team_id: str, week: int) -> bool:
-    """Check-in trùng: cùng team + cùng tuần lịch (thứ 2-CN theo ICT)."""
-    from datetime import timezone, timedelta
-    ict = timezone(timedelta(hours=7))
-    now = datetime.now(ict)
-    # Thứ 2 đầu tuần, 00:00
-    monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-
+    """Check-in trùng: cùng team + cùng challenge week number."""
     rows = _load_local()["Checkins"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_CHECKINS).get_all_records()
     for row in rows:
         if row["team_id"] != team_id:
             continue
-        submitted = row.get("submitted_at", "")
-        if not submitted:
+        if str(row.get("validated", "")).upper() != "TRUE":
             continue
         try:
-            dt = datetime.fromisoformat(submitted)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            dt_ict = dt.astimezone(ict)
-            if dt_ict >= monday:
+            if int(row["week"]) == week:
                 return True
         except (ValueError, TypeError):
             continue
@@ -186,7 +213,14 @@ def team_already_checked_in(team_id: str, week: int) -> bool:
 
 
 def save_checkin(team_id: str, team_name: str, week: int, summary_text: str, has_screenshot: bool, rank: int, points: int, member_count: int = 0, photo_url: str | None = None) -> dict:
-    row = {"id": None, "team_id": team_id, "team_name": team_name, "week": week, "submitted_at": datetime.utcnow().isoformat(), "rank": rank, "points": points, "summary_text": summary_text, "has_screenshot": "TRUE" if has_screenshot else "FALSE", "validated": "TRUE", "member_count": member_count, "photo_url": photo_url or ""}
+    row = {
+        "id": None, "team_id": team_id, "team_name": team_name, "week": week,
+        "submitted_at": datetime.now(timezone.utc).isoformat(),
+        "rank": rank, "points": points, "summary_text": summary_text,
+        "has_screenshot": "TRUE" if has_screenshot else "FALSE",
+        "validated": "TRUE", "member_count": member_count,
+        "photo_url": photo_url or "",
+    }
     if config.USE_LOCAL_STORAGE:
         data = _load_local()
         row["id"] = f"ci_{len(data['Checkins']) + 1}"
@@ -195,13 +229,12 @@ def save_checkin(team_id: str, team_name: str, week: int, summary_text: str, has
         return row
     ws = _get_sheet(config.SHEET_CHECKINS)
     row["id"] = f"ci_{len(ws.get_all_records()) + 1}"
-    ws.append_row([row["id"], team_id, team_name, week, row["submitted_at"], rank, points, summary_text, row["has_screenshot"], row["validated"], member_count, photo_url or ""])
+    _append_row_by_headers(ws, row)
     return row
 
 
 def get_shares_this_week(team_id: str) -> list[dict]:
     """Lấy danh sách các bài share của team trong tuần hiện tại (theo ICT)."""
-    from datetime import timezone, timedelta
     ict = timezone(timedelta(hours=7))
     now = datetime.now(ict)
     monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -236,7 +269,12 @@ def get_best_share_score(team_id: str) -> int:
 
 
 def save_share(team_id: str, team_name: str, week: int, content: str, score: int, feedback: str) -> dict:
-    row = {"id": None, "team_id": team_id, "team_name": team_name, "week": week, "submitted_at": datetime.utcnow().isoformat(), "content": content, "score": score, "scored_at": datetime.utcnow().isoformat(), "feedback": feedback}
+    now = datetime.now(timezone.utc).isoformat()
+    row = {
+        "id": None, "team_id": team_id, "team_name": team_name, "week": week,
+        "submitted_at": now, "content": content, "score": score,
+        "scored_at": now, "feedback": feedback,
+    }
     if config.USE_LOCAL_STORAGE:
         data = _load_local()
         row["id"] = f"sh_{len(data['Shares']) + 1}"
@@ -245,7 +283,7 @@ def save_share(team_id: str, team_name: str, week: int, content: str, score: int
         return row
     ws = _get_sheet(config.SHEET_SHARES)
     row["id"] = f"sh_{len(ws.get_all_records()) + 1}"
-    ws.append_row([row["id"], team_id, team_name, week, row["submitted_at"], content, score, row["scored_at"], feedback])
+    _append_row_by_headers(ws, row)
     return row
 
 
@@ -260,12 +298,13 @@ def compute_and_save_leaderboard() -> list[dict]:
             checkin_rows = _get_sheet(config.SHEET_CHECKINS).get_all_records()
             share_rows = _get_sheet(config.SHEET_SHARES).get_all_records()
 
+        now = datetime.now(timezone.utc).isoformat()
         standings = []
         for team in teams:
             tid = team["team_id"]
             ci_pts = min(sum(int(r.get("points", 0)) for r in checkin_rows if r["team_id"] == tid and str(r.get("validated", "")).upper() == "TRUE"), config.MAX_CHECKIN_POINTS)
             sh_pts = max((int(r["score"]) for r in share_rows if r["team_id"] == tid and str(r.get("score", "")).strip() != ""), default=0)
-            standings.append({"team_id": tid, "team_name": team["team_name"], "checkin_points": ci_pts, "sharing_points": sh_pts, "total_points": ci_pts + sh_pts, "last_updated": datetime.utcnow().isoformat()})
+            standings.append({"team_id": tid, "team_name": team["team_name"], "checkin_points": ci_pts, "sharing_points": sh_pts, "total_points": ci_pts + sh_pts, "last_updated": now})
 
         standings.sort(key=lambda x: (x["total_points"], x["sharing_points"], x["checkin_points"]), reverse=True)
         if config.USE_LOCAL_STORAGE:
@@ -274,9 +313,16 @@ def compute_and_save_leaderboard() -> list[dict]:
             _save_local(data)
         else:
             lb_ws = _get_sheet(config.SHEET_LEADERBOARD)
-            lb_ws.resize(rows=1)
+            headers = lb_ws.row_values(1)
+            if not headers:
+                headers = _DEFAULT_HEADERS[config.SHEET_LEADERBOARD]
+            # Batch update: build all rows then write at once
+            all_data = [headers]
             for s in standings:
-                lb_ws.append_row([s["team_id"], s["team_name"], s["checkin_points"], s["sharing_points"], s["total_points"], s["last_updated"]])
+                all_data.append([s.get(h, "") for h in headers])
+            lb_ws.resize(rows=1)
+            lb_ws.resize(rows=max(len(all_data), 2))
+            lb_ws.update(range_name=f"A1:{chr(64 + len(headers))}{len(all_data)}", values=all_data)
         return standings
     except Exception as e:
         logger.error("compute_and_save_leaderboard failed: %s", e)
@@ -301,26 +347,26 @@ def update_organizer_details() -> None:
     except Exception:
         client = _get_client()
         spreadsheet = client.open_by_key(config.SPREADSHEET_ID)
-        ws = spreadsheet.add_worksheet(title="Meeting_Organizer_Details", rows=100, cols=7)
-        ws.append_row(["#", "Leader", "Tên Team / Tên cuộc họp", "Số member", "Check-in", "Score Action", "Tổng điểm"])
+        ws = spreadsheet.add_worksheet(title="Meeting_Organizer_Details", rows=500, cols=7)
 
-    # Xoá data cũ, giữ header
-    ws.resize(rows=1)
+    header = ["#", "Leader", "Tên Team / Tên cuộc họp", "Số member", "Check-in", "Score Action", "Tổng điểm"]
+    all_data = [header]
 
     for idx, team in enumerate(teams, 1):
         tid = team["team_id"]
-        # Đếm check-in
         team_checkins = [r for r in checkin_rows if r["team_id"] == tid and str(r["validated"]).upper() == "TRUE"]
         checkin_count = len(team_checkins)
-        # Lấy số member gần nhất
         latest_members = 0
         if team_checkins:
             latest = max(team_checkins, key=lambda r: r.get("submitted_at", ""))
             latest_members = int(latest.get("member_count", 0) or 0)
-        # Tính điểm
         ci_pts = min(sum(int(r["points"]) for r in team_checkins), config.MAX_CHECKIN_POINTS)
         sh_pts = max((int(r["score"]) for r in share_rows if r["team_id"] == tid and str(r.get("score", "")).strip() != ""), default=0)
         total = ci_pts + sh_pts
-
         checkin_text = f"{checkin_count} lần" if checkin_count else "Chưa"
-        ws.append_row([idx, team.get("username", ""), team["team_name"], latest_members, checkin_text, sh_pts, total])
+        all_data.append([idx, team.get("username", ""), team["team_name"], latest_members, checkin_text, sh_pts, total])
+
+    # Batch update thay vì append từng row
+    ws.resize(rows=1)
+    ws.resize(rows=max(len(all_data), 2))
+    ws.update(range_name=f"A1:G{len(all_data)}", values=all_data)

@@ -2,6 +2,7 @@
 leaderboard.py - Format bảng xếp hạng và các thông báo forward lên group.
 """
 
+import html
 import logging
 from typing import Optional
 
@@ -9,22 +10,23 @@ import config
 import sheets
 
 logger = logging.getLogger(__name__)
-MEDAL = {1: "🥇", 2: "🥈", 3: "🥉"}
+MEDAL = {1: "\U0001f947", 2: "\U0001f948", 3: "\U0001f949"}
 
 
 def format_leaderboard(standings: list[dict], week: Optional[int] = None) -> str:
     if not standings:
         return "Chưa có team nào đăng ký."
 
-    title = "🏆 AI Meeting Challenge — Bảng xếp hạng"
+    title = "\U0001f3c6 AI Meeting Challenge — Bảng xếp hạng"
     if week:
         title += f" (Tuần {week})"
 
     lines = [title, ""]
     for i, team in enumerate(standings, start=1):
         medal = MEDAL.get(i, f"{i}.")
+        name = html.escape(str(team['team_name']))
         lines.append(
-            f"{medal} {team['team_name']} — {team['total_points']} điểm "
+            f"{medal} {name} — {team['total_points']} điểm "
             f"(check-in {team['checkin_points']} + sharing {team['sharing_points']})"
         )
 
@@ -35,10 +37,10 @@ def format_leaderboard(standings: list[dict], week: Optional[int] = None) -> str
 
 def build_checkin_forward(team_name: str, week: int, rank: int, points: int, username: str) -> str:
     return (
-        f"✅ Một team vừa check-in tuần {week}!\n"
+        f"\u2705 Team {html.escape(team_name)} vừa check-in tuần {week}!\n"
         f"- Thứ tự tuần này: #{rank}\n"
         f"- Điểm nhận: +{points}\n\n"
-        f"Leaderboard đã được cập nhật. Team bạn đã check-in chưa? 👀"
+        f"Bảng xếp hạng đã được cập nhật. Team bạn đã check-in chưa? \U0001f440"
     )
 
 
@@ -51,21 +53,21 @@ def build_share_forward(
     username: str,
     is_new_best: bool,
 ) -> str:
-    badge = "\n🏆 Kỷ lục mới!" if is_new_best else ""
+    badge = "\n\U0001f3c6 Kỷ lục mới!" if is_new_best else ""
     week_text = f"tuần {week}" if week else ""
     return (
-        f"💡 Một team vừa nộp bài dự thi{' — ' + week_text if week_text else ''}!\n"
-        f"🎯 Điểm: {score}/80\n"
-        f"✨ {highlight}"
+        f"\U0001f4a1 Team {html.escape(team_name)} vừa nộp bài dự thi{' — ' + week_text if week_text else ''}!\n"
+        f"\U0001f3af Điểm: {score}/80\n"
+        f"\u2728 {html.escape(highlight)}"
         f"{badge}\n\n"
-        f"Team bạn đang ở đâu trên BXH? Nộp bài dự thi ngay! 🔥"
+        f"Team bạn đang ở đâu trên BXH? Nộp bài dự thi ngay! \U0001f525"
     )
 
 
 async def post_weekly_leaderboard(bot, week: Optional[int] = None) -> None:
     try:
         standings = sheets.compute_and_save_leaderboard()
-        await bot.send_message(chat_id=config.GROUP_CHAT_ID, text=format_leaderboard(standings, week=week))
+        await bot.send_message(chat_id=config.GROUP_CHAT_ID, text=format_leaderboard(standings, week=week), message_thread_id=config.GROUP_TOPIC_ID)
         logger.info("Weekly leaderboard posted to group")
     except Exception as e:
         logger.error("Failed to post weekly leaderboard: %s", e)
