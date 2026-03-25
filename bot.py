@@ -159,19 +159,12 @@ async def welcome_new_members(update: Update, context: ContextTypes.DEFAULT_TYPE
         mention = f"@{member.username}" if member.username else member.first_name
         bot_me = await context.bot.get_me()
         bot_link = f"@{bot_me.username}" if bot_me.username else "bot"
-        # Gửi emoji riêng để trigger hiệu ứng full-screen animation
         await update.message.reply_text("🎉")
-        sent = await update.message.reply_text(
-            f"Chào mừng <b>{mention}</b> đến với nhóm <b>Thử Thách AI Meeting</b>!\n\n"
-            f"👉 Nhắn riêng cho {bot_link} để bắt đầu nhé!",
+        await update.message.reply_text(
+            f"🎊 Chào mừng <b>{mention}</b> đến với nhóm <b>Thử Thách AI Meeting</b>! 🚀\n\n"
+            f"👉 Nhắn riêng cho {bot_link} để bắt đầu nhé! 💬",
             parse_mode="HTML",
         )
-        # Lưu welcome message để xóa khi user đăng ký xong
-        welcome_key = f"welcome_{member.id}"
-        context.bot_data[welcome_key] = {
-            "chat_id": sent.chat_id,
-            "message_id": sent.message_id,
-        }
 
 
 # ── /help ────────────────────────────────────────────────────────────────
@@ -331,18 +324,6 @@ async def receive_member_list(update: Update, context: ContextTypes.DEFAULT_TYPE
         parse_mode="HTML",
         reply_markup=_main_menu_keyboard(registered=True),
     )
-
-    # Auto xóa welcome message trong group
-    welcome_key = f"welcome_{user.id}"
-    welcome_info = context.bot_data.pop(welcome_key, None)
-    if welcome_info:
-        try:
-            await context.bot.delete_message(
-                chat_id=welcome_info["chat_id"],
-                message_id=welcome_info["message_id"],
-            )
-        except Exception:
-            pass  # Message có thể đã bị xóa hoặc bot thiếu quyền
 
     return ConversationHandler.END
 
