@@ -720,7 +720,7 @@ async def share_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         "Bài dự thi là private, khi kết thúc cuộc thi mới public.\n"
         "Top 10 bài điểm cao nhất sẽ được Hội đồng AI chấm trực tiếp và trao giải.\n\n"
         "📝 Yêu cầu:\n"
-        "• Viết dạng Markdown, 100–4000 từ\n"
+        "• Viết dạng Markdown, 100–1000 từ\n"
         "• Có raise vấn đề, có lập luận, có ví dụ\n\n"
         "📋 3 nhóm bài (trọng số cao → thấp):\n"
         "1️⃣ Đề xuất Quy trình họp Team hiệu quả với AI\n"
@@ -773,7 +773,7 @@ async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         hint = f"✨ Bài tốt nhất: {prev_best}/80 — nộp thêm nếu muốn cải thiện!\n"
 
     await message.reply_text(
-        "💡 Gửi bài dự thi (100–4000 từ, hỗ trợ Markdown):\n\n"
+        "💡 Gửi bài dự thi (100–1000 từ, hỗ trợ Markdown):\n\n"
         + hint
         + "Nộp nhiều lần được, chỉ tính điểm cao nhất.",
     )
@@ -786,13 +786,13 @@ async def share_receive_content(update: Update, context: ContextTypes.DEFAULT_TY
     word_count = len(text.split()) if text else 0
     if word_count < 100:
         await update.message.reply_text(
-            f"⚠️ Bài quá ngắn ({word_count} từ, 100–4000 từ). Gửi lại:\n"
+            f"⚠️ Bài quá ngắn ({word_count} từ, 100–1000 từ). Gửi lại:\n"
             "Gửi /cancel để huỷ.",
         )
         return WAITING_SHARE_CONTENT
-    if word_count > 4000:
+    if word_count > 1000:
         await update.message.reply_text(
-            f"⚠️ Bài quá dài ({word_count} từ, tối đa 4000 từ). Gửi lại:\n"
+            f"⚠️ Bài quá dài ({word_count} từ, tối đa 1000 từ). Gửi lại:\n"
             "Gửi /cancel để huỷ.",
         )
         return WAITING_SHARE_CONTENT
@@ -827,12 +827,12 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
     word_count = len(submission.split())
     if word_count < 100:
         await message.reply_text(
-            f"⚠️ Bài quá ngắn ({word_count} từ, 100–4000 từ). Gửi lại:",
+            f"⚠️ Bài quá ngắn ({word_count} từ, 100–1000 từ). Gửi lại:",
         )
         return WAITING_SHARE_CONTENT
-    if word_count > 4000:
+    if word_count > 1000:
         await message.reply_text(
-            f"⚠️ Bài quá dài ({word_count} từ, tối đa 4000 từ). Gửi lại:",
+            f"⚠️ Bài quá dài ({word_count} từ, tối đa 1000 từ). Gửi lại:",
         )
         return WAITING_SHARE_CONTENT
 

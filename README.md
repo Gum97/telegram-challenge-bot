@@ -51,7 +51,7 @@ python bot.py
 | `SPREADSHEET_ID` | ❌ | — | ID Google Sheets (bỏ trống → lưu JSON local) |
 | `GOOGLE_SHEETS_CREDENTIALS_FILE` | ❌ | `credentials.json` | Đường dẫn file service account |
 | `TOTAL_WEEKS` | ❌ | `10` | Số tuần thử thách |
-| `CHECKIN_POINTS` | ❌ | `10` | Điểm mỗi lần check-in |
+| `CHECKIN_POINTS` | ❌ | `20` | Điểm mỗi lần check-in |
 | `MAX_SHARES_PER_WEEK` | ❌ | `3` | Số bài share tối đa mỗi tuần |
 
 ## Các lệnh bot
