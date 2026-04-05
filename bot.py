@@ -775,16 +775,29 @@ async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     prev_best = sheets.get_best_share_score(team["team_id"])
 
     if prev_best == 0:
-        hint = "🚀 Team chưa có bài nào! Nộp ngay để ghi điểm.\n"
+        hint = "🚀 Team chưa có bài nào — nộp ngay để không bị bỏ lại!\n\n"
     elif prev_best < 50:
-        hint = f"⚡ Bài tốt nhất: {prev_best}/80 — nộp thêm để nâng điểm!\n"
+        hint = f"⚡ Bài tốt nhất của team: {prev_best}/80 — nộp thêm để nâng điểm!\n\n"
     else:
-        hint = f"✨ Bài tốt nhất: {prev_best}/80 — nộp thêm nếu muốn cải thiện!\n"
+        hint = f"✨ Bài tốt nhất: {prev_best}/80 — nộp thêm nếu muốn cải thiện!\n\n"
 
     await message.reply_text(
-        "💡 Gửi bài dự thi (100–1000 từ, hỗ trợ Markdown):\n\n"
-        + hint
-        + "Nộp nhiều lần được, chỉ tính điểm cao nhất.",
+        "💡 Bài dự thi (tối đa 80 điểm)\n\n"
+        + hint +
+        "Nộp nhiều lần được, chỉ tính 1 lần điểm cao nhất.\n"
+        "Bài dự thi là private, khi kết thúc cuộc thi mới public.\n"
+        "Top 10 bài điểm cao nhất sẽ được Hội đồng AI chấm trực tiếp và trao giải.\n\n"
+        "📝 Yêu cầu:\n"
+        "• Viết dạng Markdown, 100–1000 từ\n"
+        "• Có raise vấn đề, có lập luận, có ví dụ\n\n"
+        "📋 3 nhóm bài (trọng số cao → thấp):\n"
+        "1️⃣ Đề xuất Quy trình họp Team hiệu quả với AI\n"
+        "2️⃣ Chia sẻ quy trình cá nhân/team/phòng ban dùng AI tối ưu hiệu suất\n"
+        "3️⃣ Chia sẻ, nhận xét, đánh giá về tin tức/sự kiện AI\n\n"
+        "🤖 AI chấm theo 3 tiêu chí:\n"
+        "• Tính mới (26đ) — cách dùng AI độc đáo, có twist riêng\n"
+        "• Tính thực tế (27đ) — có số liệu trước/sau, đã áp dụng thật\n"
+        "• Độ rõ workflow (27đ) — mô tả rõ input → tool → output",
     )
     return WAITING_SHARE_CONTENT
 
