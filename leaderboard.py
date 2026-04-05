@@ -53,14 +53,14 @@ def build_share_forward(
     username: str,
     is_new_best: bool,
 ) -> str:
-    badge = "\n\U0001f3c6 Kỷ lục mới!" if is_new_best else ""
+    badge = "\n\U0001f3c6 Kỷ lục mới toàn cuộc thi! 🎉" if is_new_best else ""
     week_text = f"tuần {week}" if week else ""
     return (
         f"\U0001f4a1 Team {html.escape(team_name)} vừa nộp bài dự thi{' — ' + week_text if week_text else ''}!\n"
         f"\U0001f3af Điểm: {score}/80\n"
         f"\u2728 {html.escape(highlight)}"
         f"{badge}\n\n"
-        f"Team bạn đang ở đâu trên BXH? Nộp bài dự thi ngay! \U0001f525"
+        f"Các team khác đang ở đâu trên BXH? Hãy nộp bài dự thi của bạn, hoặc sửa bài cũ để điểm cao hơn nhé! \U0001f525"
     )
 
 

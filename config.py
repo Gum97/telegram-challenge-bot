@@ -52,6 +52,7 @@ TOTAL_WEEKS: int = int(_get("TOTAL_WEEKS", "6"))
 CHECKIN_POINTS: int = int(_get("CHECKIN_POINTS", "20"))
 MAX_CHECKIN_POINTS: int = CHECKIN_POINTS * TOTAL_WEEKS  # Tổng điểm check-in tối đa
 MAX_SHARES_PER_WEEK: int = int(_get("MAX_SHARES_PER_WEEK", "3"))  # Tối đa 3 lần share/tuần/team
+MAX_SHARES_PER_DAY: int = int(_get("MAX_SHARES_PER_DAY", "1"))    # Tối đa 1 lần share/ngày/team
 # Ngày bắt đầu thử thách (YYYY-MM-DD, theo ICT). None = chưa cấu hình, bot dùng #week_N từ user.
 CHALLENGE_START_DATE: str | None = _get("CHALLENGE_START_DATE")
 

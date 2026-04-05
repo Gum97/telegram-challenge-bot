@@ -836,6 +836,16 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
         )
         return WAITING_SHARE_CONTENT
 
+    # Kiểm tra giới hạn 1 bài/ngày
+    today_shares = await asyncio.to_thread(sheets.get_shares_today, team["team_id"])
+    if len(today_shares) >= config.MAX_SHARES_PER_DAY:
+        await message.reply_text(
+            "⚠️ Mỗi ngày chỉ được nộp 1 bài dự thi.\n"
+            "Hãy chỉnh sửa kỹ rồi gửi lại vào ngày mai nhé!",
+            reply_markup=_main_menu_keyboard(registered=True),
+        )
+        context.user_data.pop("share_team", None)
+        return ConversationHandler.END
     # Kiểm tra giới hạn số bài/tuần + lấy bài cũ để check trùng
     prev_shares = await asyncio.to_thread(sheets.get_shares_this_week, team["team_id"])
     if len(prev_shares) >= config.MAX_SHARES_PER_WEEK:
@@ -857,6 +867,7 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
             return WAITING_SHARE_CONTENT
 
     prev_best = await asyncio.to_thread(sheets.get_best_share_score, team["team_id"])
+    global_best = await asyncio.to_thread(sheets.get_global_best_share_score)
 
     await message.reply_text("🤖 Đang dùng AI để chấm bài của bạn...")
     try:
@@ -878,7 +889,8 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
         return ConversationHandler.END
 
     category_names = {1: "Quy trình họp Team với AI", 2: "Quy trình dùng AI tối ưu hiệu suất", 3: "Nhận xét tin tức/sự kiện AI"}
-    is_new_best = result.score > prev_best
+    is_global_record = result.score > global_best
+    is_team_best = result.score > prev_best
     result_text = (
         f"🎯 Điểm bài dự thi: {result.score}/80\n\n"
         f"📂 Nhóm: {result.category} — {category_names.get(result.category, 'Khác')}\n"
@@ -887,10 +899,12 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
         f"📋 Độ rõ workflow: {result.workflow_clarity}/27\n\n"
         f"📝 Nhận xét: {result.feedback}"
     )
-    if is_new_best:
-        result_text += "\n\n🏆 Đây là điểm cao nhất của team bạn!"
+    if is_global_record:
+        result_text += "\n\n🏆 Kỷ lục mới toàn cuộc thi! 🎉"
+    elif is_team_best:
+        result_text += "\n\n⭐ Đây là điểm cao nhất của team bạn!"
     else:
-        result_text += f"\n\n📊 Điểm cao nhất hiện tại: {prev_best}/80 (chỉ tính lần cao nhất)"
+        result_text += f"\n\n📊 Điểm cao nhất hiện tại của team: {prev_best}/80 (chỉ tính lần cao nhất)"
 
     await message.reply_text(result_text, reply_markup=_main_menu_keyboard(registered=True))
 
@@ -903,7 +917,7 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
                 highlight=result.highlight,
                 feedback=result.feedback,
                 username=_username(update),
-                is_new_best=is_new_best,
+                is_new_best=is_global_record,
             )
             await context.bot.send_message(chat_id=config.GROUP_CHAT_ID, text=forward_text, message_thread_id=config.GROUP_TOPIC_ID, parse_mode="HTML")
         except Exception as e:
@@ -1108,14 +1122,7 @@ async def _delete_after(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Xem BXH — chỉ hoạt động trong group, tự xoá sau 10 giây."""
-    if _is_dm(update):
-        await update.message.reply_text(
-            "🏆 Bảng xếp hạng chỉ xem được trong group chat.\n"
-            "Gõ /leaderboard trong group nhé!",
-        )
-        return
-
+    """Xem BXH — hoạt động cả DM và group. Trong group tự xoá sau 1 phút."""
     try:
         standings = sheets.compute_and_save_leaderboard()
         text = lb.format_leaderboard(standings)
@@ -1123,15 +1130,21 @@ async def cmd_leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         logger.error("Leaderboard error: %s", e)
         text = "❌ Không tải được leaderboard lúc này."
 
+    if _is_dm(update):
+        user = update.effective_user
+        registered = sheets.get_team_by_user(user.id) is not None
+        await update.message.reply_text(text, parse_mode="HTML", reply_markup=_main_menu_keyboard(registered))
+        return
+
     sent = await update.message.reply_text(text, parse_mode="HTML")
 
-    # Xoá cả lệnh user và reply của bot sau 10 giây
+    # Xoá cả lệnh user và reply của bot sau 1 phút
     context.job_queue.run_once(
-        _delete_after, 10,
+        _delete_after, 60,
         data={"chat_id": sent.chat_id, "message_id": sent.message_id},
     )
     context.job_queue.run_once(
-        _delete_after, 10,
+        _delete_after, 60,
         data={"chat_id": update.message.chat_id, "message_id": update.message.message_id},
     )
 
