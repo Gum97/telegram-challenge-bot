@@ -72,7 +72,9 @@ _DEFAULT_HEADERS = {
                             "rank", "points", "summary_text", "has_screenshot",
                             "validated", "member_count", "photo_url"],
     config.SHEET_SHARES: ["id", "team_id", "team_name", "week", "submitted_at",
-                          "content", "score", "scored_at", "feedback"],
+                          "content", "score", "category", "novelty", 
+                          "practicality", "workflow_clarity", 
+                          "scored_at", "feedback"],
     config.SHEET_LEADERBOARD: ["team_id", "team_name", "checkin_points",
                                "sharing_points", "total_points", "last_updated"],
 }
@@ -300,11 +302,13 @@ def get_global_best_share_score() -> int:
     return max(scores) if scores else 0
 
 
-def save_share(team_id: str, team_name: str, week: int, content: str, score: int, feedback: str) -> dict:
+def save_share(team_id: str, team_name: str, week: int, content: str, score: int, category: int, novelty: int, practicality: int, workflow_clarity: int, feedback: str) -> dict:
     now = datetime.now(timezone.utc).isoformat()
     row = {
         "id": None, "team_id": team_id, "team_name": team_name, "week": week,
-        "submitted_at": now, "content": content, "score": score,
+        "submitted_at": now, "content": content, 
+        "score": score, "category": category, "novelty": novelty, 
+        "practicality": practicality, "workflow_clarity": workflow_clarity,
         "scored_at": now, "feedback": feedback,
     }
     if config.USE_LOCAL_STORAGE:

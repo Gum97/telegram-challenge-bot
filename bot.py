@@ -913,6 +913,10 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
             week=week,
             content=submission[:30000],
             score=result.score,
+            category=result.category,
+            novelty=result.novelty,
+            practicality=result.practicality,
+            workflow_clarity=result.workflow_clarity,
             feedback=result.feedback,
         )
         await asyncio.to_thread(sheets.compute_and_save_leaderboard)
