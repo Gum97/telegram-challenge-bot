@@ -407,7 +407,8 @@ async def checkin_button_handler(update: Update, context: ContextTypes.DEFAULT_T
         query,
         "📋 Check-in tuần — Bước 1/2\n\n"
         '📖 Trước khi check-in, hãy xem <a href="https://docs.google.com/document/d/1yC_0CVwUNiTwhc5LDIpODxocB0CPjyopqrdhzd3YYv0/edit?tab=t.0">hướng dẫn NotebookLM</a> để biết cách tổng hợp cuộc họp.\n\n'
-        "📸 Gửi ảnh chụp màn hình NotebookLM mới nhất của bạn:",
+        "📸 Gửi ảnh chụp màn hình NotebookLM mới nhất của bạn:\n"
+        "Gửi /cancel để huỷ.",
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
@@ -476,7 +477,8 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
     await message.reply_text(
         "📋 Check-in tuần — Bước 1/2\n\n"
         '📖 Trước khi check-in, hãy xem <a href="https://docs.google.com/document/d/1yC_0CVwUNiTwhc5LDIpODxocB0CPjyopqrdhzd3YYv0/edit?tab=t.0">hướng dẫn NotebookLM</a> để biết cách tổng hợp cuộc họp.\n\n'
-        "📸 Gửi ảnh chụp màn hình NotebookLM mới nhất của bạn:",
+        "📸 Gửi ảnh chụp màn hình NotebookLM mới nhất của bạn:\n"
+        "Gửi /cancel để huỷ.",
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
@@ -530,7 +532,8 @@ async def checkin_receive_photo(update: Update, context: ContextTypes.DEFAULT_TY
         "💬 <b>Ví dụ kết quả:</b>\n\n"
         "<code>Ngày: 18/03/2026, Tham dự: 11, Vắng: 1, "
         "Vấn đề raised: 4, Next action: 3, "
-        "Tồn đọng: 3</code>",
+        "Tồn đọng: 3</code>\n\n"
+        "Gửi /cancel để huỷ.",
         parse_mode="HTML",
     )
     return WAITING_CHECKIN_CONTENT
@@ -745,7 +748,8 @@ async def share_button_handler(update: Update, context: ContextTypes.DEFAULT_TYP
         "🤖 AI chấm theo 3 tiêu chí:\n"
         "• Tính mới (26đ) — cách dùng AI độc đáo, có twist riêng\n"
         "• Tính thực tế (27đ) — có số liệu trước/sau, đã áp dụng thật\n"
-        "• Độ rõ workflow (27đ) — mô tả rõ input → tool → output",
+        "• Độ rõ workflow (27đ) — mô tả rõ input → tool → output\n\n"
+        "Gửi /cancel để huỷ.",
     )
     return WAITING_SHARE_CONTENT
 
@@ -804,7 +808,8 @@ async def cmd_share(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
         "🤖 AI chấm theo 3 tiêu chí:\n"
         "• Tính mới (26đ) — cách dùng AI độc đáo, có twist riêng\n"
         "• Tính thực tế (27đ) — có số liệu trước/sau, đã áp dụng thật\n"
-        "• Độ rõ workflow (27đ) — mô tả rõ input → tool → output",
+        "• Độ rõ workflow (27đ) — mô tả rõ input → tool → output\n\n"
+        "Gửi /cancel để huỷ.",
     )
     return WAITING_SHARE_CONTENT
 
