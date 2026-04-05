@@ -113,6 +113,7 @@ def _main_menu_keyboard(registered: bool = False) -> InlineKeyboardMarkup:
     rows.extend([
         [InlineKeyboardButton("📋 Check-in tuần", callback_data="menu_checkin")],
         [InlineKeyboardButton("💡 Nộp bài dự thi", callback_data="menu_share")],
+        [InlineKeyboardButton("🏆 Bảng xếp hạng", callback_data="menu_leaderboard")],
         [InlineKeyboardButton("❓ Trợ giúp", callback_data="menu_help")],
     ])
     return InlineKeyboardMarkup(rows)
@@ -217,6 +218,14 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # menu_dangki, menu_checkin, menu_share → xử lý bởi ConversationHandler
     if data == "menu_help":
         await _safe_edit(query, HELP_TEXT, reply_markup=kb)
+    elif data == "menu_leaderboard":
+        try:
+            standings = sheets.compute_and_save_leaderboard()
+            text = lb.format_leaderboard(standings)
+        except Exception as e:
+            logger.error("Leaderboard error: %s", e)
+            text = "❌ Không tải được leaderboard lúc này."
+        await _safe_edit(query, text, reply_markup=kb, parse_mode="HTML")
 
 
 # ── /dangki (ConversationHandler) ────────────────────────────────────────
