@@ -95,13 +95,20 @@ def _current_week() -> int | None:
 
 def _extract_member_count(text: str) -> int | None:
     """Trích số người tham dự từ text.
-    Ưu tiên pattern 'X/Y người' (trích X), sau đó 'X người'.
+    Hỗ trợ nhiều format: 'X/Y người', 'X người', 'Tham dự: X', 'X tham dự', v.v.
     """
+    # Pattern 1: X/Y người (trích X)
     m = re.search(r"(\d+)\s*/\s*\d+\s*(?:người|thành viên|members?)", text, re.IGNORECASE)
     if m:
         return int(m.group(1))
-    m = re.search(r"(\d+)\s*(?:người|thành viên|members?|người họp|người tham)", text, re.IGNORECASE)
-    return int(m.group(1)) if m else None
+    # Pattern 2: keyword trước, số sau — "Tham dự: 7", "Số người tham dự: 11"
+    m = re.search(r"(?:tham dự|tham gia|participants?|attended|số người tham)[:\s]+(\d+)", text, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
+    # Pattern 3: số trước, keyword sau — "11 người", "10 tham dự"
+    m = re.search(r"(\d+)\s*(?:người|thành viên|members?|người họp|người tham|tham dự|tham gia)", text, re.IGNORECASE)
+    if m:
+        return int(m.group(1))
 
 
 
