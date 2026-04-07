@@ -890,15 +890,15 @@ async def _process_share(update: Update, context: ContextTypes.DEFAULT_TYPE, sub
         )
         context.user_data.pop("share_team", None)
         return ConversationHandler.END
-    if prev_shares:
-        prev_contents = [s.get("content", "") for s in prev_shares if s.get("content")]
-        is_dup, dup_reason = await asyncio.to_thread(scoring.is_duplicate_topic, submission, prev_contents)
-        if is_dup:
-            await message.reply_text(
-                f"⚠️ Bài có vẻ trùng chủ đề với bài đã nộp tuần này:\n{dup_reason}\n\n"
-                "Vui lòng viết về chủ đề AI khác.",
-            )
-            return WAITING_SHARE_CONTENT
+    # if prev_shares:
+    #     prev_contents = [s.get("content", "") for s in prev_shares if s.get("content")]
+    #     is_dup, dup_reason = await asyncio.to_thread(scoring.is_duplicate_topic, submission, prev_contents)
+    #     if is_dup:
+    #         await message.reply_text(
+    #             f"⚠️ Bài có vẻ trùng chủ đề với bài đã nộp tuần này:\n{dup_reason}\n\n"
+    #             "Vui lòng viết về chủ đề AI khác.",
+    #         )
+    #         return WAITING_SHARE_CONTENT
 
     prev_best = await asyncio.to_thread(sheets.get_best_share_score, team["team_id"])
     global_best = await asyncio.to_thread(sheets.get_global_best_share_score)
