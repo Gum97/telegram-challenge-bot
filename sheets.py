@@ -80,6 +80,14 @@ _DEFAULT_HEADERS = {
 }
 
 
+def _get_all_records(ws, tab_name: str) -> list[dict]:
+    """Wrapper for get_all_records that handles duplicate empty headers."""
+    headers = _DEFAULT_HEADERS.get(tab_name)
+    if headers:
+        return ws.get_all_records(expected_headers=headers)
+    return ws.get_all_records()
+
+
 def _expand_sheet(ws) -> None:
     """Mở rộng sheet lên tối thiểu _SHEET_MIN_ROWS dòng và _SHEET_MIN_COLS cột."""
     needs_resize = ws.row_count < _SHEET_MIN_ROWS or ws.col_count < _SHEET_MIN_COLS
@@ -160,7 +168,7 @@ def register_team(telegram_user_id: int, username: str, team_name: str,
         return row
 
     ws = _get_sheet(config.SHEET_TEAMS)
-    all_rows = ws.get_all_records()
+    all_rows = _get_all_records(ws, config.SHEET_TEAMS)
     for row in all_rows:
         if str(row["telegram_user_id"]) == str(telegram_user_id):
             return row
@@ -181,7 +189,7 @@ def get_team_by_user(telegram_user_id: int) -> Optional[dict]:
     if config.USE_LOCAL_STORAGE:
         return next((r for r in _load_local()["Teams"] if str(r["telegram_user_id"]) == str(telegram_user_id)), None)
     ws = _get_sheet(config.SHEET_TEAMS)
-    for row in ws.get_all_records():
+    for row in _get_all_records(ws, config.SHEET_TEAMS):
         if str(row["telegram_user_id"]) == str(telegram_user_id):
             return row
     return None
@@ -190,17 +198,18 @@ def get_team_by_user(telegram_user_id: int) -> Optional[dict]:
 def get_all_teams() -> list[dict]:
     if config.USE_LOCAL_STORAGE:
         return _load_local()["Teams"]
-    return _get_sheet(config.SHEET_TEAMS).get_all_records()
+    ws = _get_sheet(config.SHEET_TEAMS)
+    return _get_all_records(ws, config.SHEET_TEAMS)
 
 
 def count_checkins_for_week(week: int) -> int:
-    rows = _load_local()["Checkins"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_CHECKINS).get_all_records()
+    rows = _load_local()["Checkins"] if config.USE_LOCAL_STORAGE else _get_all_records(_get_sheet(config.SHEET_CHECKINS), config.SHEET_CHECKINS)
     return sum(1 for row in rows if int(row["week"]) == week and str(row["validated"]).upper() == "TRUE")
 
 
 def team_already_checked_in(team_id: str, week: int) -> bool:
     """Check-in trùng: cùng team + cùng challenge week number."""
-    rows = _load_local()["Checkins"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_CHECKINS).get_all_records()
+    rows = _load_local()["Checkins"] if config.USE_LOCAL_STORAGE else _get_all_records(_get_sheet(config.SHEET_CHECKINS), config.SHEET_CHECKINS)
     for row in rows:
         if row["team_id"] != team_id:
             continue
@@ -230,7 +239,7 @@ def save_checkin(team_id: str, team_name: str, week: int, summary_text: str, has
         _save_local(data)
         return row
     ws = _get_sheet(config.SHEET_CHECKINS)
-    row["id"] = f"ci_{len(ws.get_all_records()) + 1}"
+    row["id"] = f"ci_{len(_get_all_records(ws, config.SHEET_CHECKINS)) + 1}"
     _append_row_by_headers(ws, row)
     return row
 
@@ -241,7 +250,7 @@ def get_shares_this_week(team_id: str) -> list[dict]:
     now = datetime.now(ict)
     monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
 
-    rows = _load_local()["Shares"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_SHARES).get_all_records()
+    rows = _load_local()["Shares"] if config.USE_LOCAL_STORAGE else _get_all_records(_get_sheet(config.SHEET_SHARES), config.SHEET_SHARES)
     result = []
     for row in rows:
         if row["team_id"] != team_id:
@@ -270,7 +279,7 @@ def get_shares_today(team_id: str) -> list[dict]:
     now = datetime.now(ict)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    rows = _load_local()["Shares"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_SHARES).get_all_records()
+    rows = _load_local()["Shares"] if config.USE_LOCAL_STORAGE else _get_all_records(_get_sheet(config.SHEET_SHARES), config.SHEET_SHARES)
     result = []
     for row in rows:
         if row["team_id"] != team_id:
@@ -290,14 +299,14 @@ def get_shares_today(team_id: str) -> list[dict]:
 
 
 def get_best_share_score(team_id: str) -> int:
-    rows = _load_local()["Shares"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_SHARES).get_all_records()
+    rows = _load_local()["Shares"] if config.USE_LOCAL_STORAGE else _get_all_records(_get_sheet(config.SHEET_SHARES), config.SHEET_SHARES)
     scores = [int(r["score"]) for r in rows if r["team_id"] == team_id and str(r.get("score", "")).strip() != ""]
     return max(scores) if scores else 0
 
 
 def get_global_best_share_score() -> int:
     """Lấy điểm share cao nhất toàn cuộc thi (tất cả teams)."""
-    rows = _load_local()["Shares"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_SHARES).get_all_records()
+    rows = _load_local()["Shares"] if config.USE_LOCAL_STORAGE else _get_all_records(_get_sheet(config.SHEET_SHARES), config.SHEET_SHARES)
     scores = [int(r["score"]) for r in rows if str(r.get("score", "")).strip() != ""]
     return max(scores) if scores else 0
 
@@ -318,7 +327,7 @@ def save_share(team_id: str, team_name: str, week: int, content: str, score: int
         _save_local(data)
         return row
     ws = _get_sheet(config.SHEET_SHARES)
-    row["id"] = f"sh_{len(ws.get_all_records()) + 1}"
+    row["id"] = f"sh_{len(_get_all_records(ws, config.SHEET_SHARES)) + 1}"
     _append_row_by_headers(ws, row)
     return row
 
@@ -331,8 +340,8 @@ def compute_and_save_leaderboard() -> list[dict]:
             checkin_rows = data["Checkins"]
             share_rows = data["Shares"]
         else:
-            checkin_rows = _get_sheet(config.SHEET_CHECKINS).get_all_records()
-            share_rows = _get_sheet(config.SHEET_SHARES).get_all_records()
+            checkin_rows = _get_all_records(_get_sheet(config.SHEET_CHECKINS), config.SHEET_CHECKINS)
+            share_rows = _get_all_records(_get_sheet(config.SHEET_SHARES), config.SHEET_SHARES)
 
         now = datetime.now(timezone.utc).isoformat()
         standings = []
@@ -366,7 +375,7 @@ def compute_and_save_leaderboard() -> list[dict]:
 
 
 def get_leaderboard() -> list[dict]:
-    return _load_local()["Leaderboard"] if config.USE_LOCAL_STORAGE else _get_sheet(config.SHEET_LEADERBOARD).get_all_records()
+    return _load_local()["Leaderboard"] if config.USE_LOCAL_STORAGE else _get_all_records(_get_sheet(config.SHEET_LEADERBOARD), config.SHEET_LEADERBOARD)
 
 
 def update_organizer_details() -> None:
@@ -375,8 +384,8 @@ def update_organizer_details() -> None:
         return
 
     teams = get_all_teams()
-    checkin_rows = _get_sheet(config.SHEET_CHECKINS).get_all_records()
-    share_rows = _get_sheet(config.SHEET_SHARES).get_all_records()
+    checkin_rows = _get_all_records(_get_sheet(config.SHEET_CHECKINS), config.SHEET_CHECKINS)
+    share_rows = _get_all_records(_get_sheet(config.SHEET_SHARES), config.SHEET_SHARES)
 
     try:
         ws = _get_sheet("Meeting_Organizer_Details")
