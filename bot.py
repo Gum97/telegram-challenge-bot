@@ -205,12 +205,13 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 # ── Callback query handler (xử lý buttons) ──────────────────────────────
 
 async def _safe_edit(query, text: str, reply_markup=None, parse_mode=None, disable_web_page_preview=False) -> None:
-    """Edit message, bỏ qua lỗi nếu nội dung không thay đổi."""
-    try:
-        await query.edit_message_text(text, reply_markup=reply_markup, parse_mode=parse_mode, disable_web_page_preview=disable_web_page_preview)
-    except BadRequest as e:
-        if "Message is not modified" not in str(e):
-            raise
+    """Gửi tin nhắn mới thay vì edit tin cũ — giữ lại lịch sử chat."""
+    await query.message.reply_text(
+        text,
+        reply_markup=reply_markup,
+        parse_mode=parse_mode,
+        disable_web_page_preview=disable_web_page_preview,
+    )
 
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
