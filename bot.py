@@ -247,6 +247,19 @@ async def dangki_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
         await _safe_edit(query, "Vui lòng nhắn riêng cho bot để đăng ký team nhé!")
         return ConversationHandler.END
 
+    # Khoá đăng ký sau deadline (hết hạn sau 13/04/2026)
+    registration_deadline = date(2026, 4, 13)
+    today = datetime.now(ICT).date()
+    if today > registration_deadline:
+        await _safe_edit(
+            query,
+            "⛔ Đã hết hạn đăng ký team!\n\n"
+            "Thời gian đăng ký đã kết thúc vào ngày 13/04/2026.\n"
+            "Nếu cần hỗ trợ, vui lòng liên hệ admin.",
+            reply_markup=_main_menu_keyboard(registered=False),
+        )
+        return ConversationHandler.END
+
     user = update.effective_user
     existing = sheets.get_team_by_user(user.id)
     if existing:
@@ -264,6 +277,18 @@ async def dangki_button_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def cmd_dangki(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     if not await _dm_only(update, "dangki"):
+        return ConversationHandler.END
+
+    # Khoá đăng ký sau deadline (hết hạn sau 13/04/2026)
+    registration_deadline = date(2026, 4, 13)
+    today = datetime.now(ICT).date()
+    if today > registration_deadline:
+        await update.message.reply_text(
+            "⛔ Đã hết hạn đăng ký team!\n\n"
+            "Thời gian đăng ký đã kết thúc vào ngày 13/04/2026.\n"
+            "Nếu cần hỗ trợ, vui lòng liên hệ admin.",
+            reply_markup=_main_menu_keyboard(registered=False),
+        )
         return ConversationHandler.END
 
     user = update.effective_user
