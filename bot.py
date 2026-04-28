@@ -1196,6 +1196,153 @@ async def cmd_setstart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
 
 
+# ── /broadcast & /dm (admin → user DM) ──────────────────────────────────
+
+async def _send_dm_safe(bot, user_id: int, text: str) -> tuple[bool, str | None]:
+    """Gửi DM tới 1 user. Trả về (success, error_msg)."""
+    try:
+        await bot.send_message(chat_id=user_id, text=text)
+        return True, None
+    except Exception as e:
+        return False, str(e)
+
+
+async def cmd_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/dm <user_id> <nội dung> — Gửi DM tới 1 user (admin only)."""
+    user = update.effective_user
+    if not _is_admin(user.id):
+        await update.message.reply_text("⛔ Chỉ admin mới dùng được lệnh này.")
+        return
+
+    text = (update.message.text or "").strip()
+    parts = text.split(None, 2)
+    if len(parts) < 3:
+        await update.message.reply_text(
+            "Cách dùng: /dm <user_id> <nội dung>\n"
+            "Ví dụ: /dm 123456789 Hi bạn, link claim tiền: ...",
+        )
+        return
+
+    try:
+        target_id = int(parts[1])
+    except ValueError:
+        await update.message.reply_text("⚠️ user_id phải là số nguyên.")
+        return
+
+    content = parts[2]
+    ok, err = await _send_dm_safe(context.bot, target_id, content)
+    if ok:
+        await update.message.reply_text(f"✅ Đã gửi DM tới user {target_id}.")
+    else:
+        await update.message.reply_text(f"❌ Gửi thất bại: {err}")
+
+
+async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """/broadcast <nội dung> — Gửi DM hàng loạt tới mọi team đã đăng ký (admin only)."""
+    user = update.effective_user
+    if not _is_admin(user.id):
+        await update.message.reply_text("⛔ Chỉ admin mới dùng được lệnh này.")
+        return
+
+    text = (update.message.text or "").strip()
+    parts = text.split(None, 1)
+    if len(parts) < 2:
+        await update.message.reply_text(
+            "Cách dùng: /broadcast <nội dung>\n\n"
+            "Bot sẽ gửi DM tới TẤT CẢ user đã đăng ký team.\n"
+            "Sẽ có preview + xác nhận trước khi gửi.",
+        )
+        return
+
+    content = parts[1]
+
+    teams = sheets.get_all_teams()
+    recipient_ids = sorted({int(t["telegram_user_id"]) for t in teams if t.get("telegram_user_id")})
+
+    if not recipient_ids:
+        await update.message.reply_text("⚠️ Chưa có team nào đăng ký để gửi broadcast.")
+        return
+
+    context.user_data["pending_broadcast"] = {
+        "content": content,
+        "recipient_ids": recipient_ids,
+    }
+
+    preview = content[:1500]
+    if len(content) > 1500:
+        preview += "\n... (đã cắt cho preview)"
+
+    kb = InlineKeyboardMarkup([[
+        InlineKeyboardButton("✅ Gửi", callback_data="broadcast_send"),
+        InlineKeyboardButton("❌ Huỷ", callback_data="broadcast_cancel"),
+    ]])
+    await update.message.reply_text(
+        f"📣 Preview broadcast → {len(recipient_ids)} user:\n\n"
+        f"────────\n{preview}\n────────\n\n"
+        "Bấm \"Gửi\" để xác nhận.",
+        reply_markup=kb,
+    )
+
+
+async def broadcast_confirm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Xử lý nút Gửi/Huỷ broadcast (admin only)."""
+    query = update.callback_query
+    await query.answer()
+
+    user = update.effective_user
+    if not _is_admin(user.id):
+        try:
+            await query.edit_message_text("⛔ Chỉ admin mới dùng được.")
+        except BadRequest:
+            pass
+        return
+
+    pending = context.user_data.get("pending_broadcast")
+    if not pending:
+        try:
+            await query.edit_message_text("⚠️ Không có broadcast đang chờ. Dùng /broadcast lại.")
+        except BadRequest:
+            pass
+        return
+
+    if query.data == "broadcast_cancel":
+        context.user_data.pop("pending_broadcast", None)
+        await query.edit_message_text("❌ Đã huỷ broadcast.")
+        return
+
+    content = pending["content"]
+    recipient_ids = pending["recipient_ids"]
+    context.user_data.pop("pending_broadcast", None)
+
+    await query.edit_message_text(f"⏳ Đang gửi broadcast tới {len(recipient_ids)} user...")
+
+    success = 0
+    failed: list[tuple[int, str]] = []
+    for uid in recipient_ids:
+        ok, err = await _send_dm_safe(context.bot, uid, content)
+        if ok:
+            success += 1
+        else:
+            failed.append((uid, err or "unknown"))
+        await asyncio.sleep(0.05)  # ~20 msg/s, dưới giới hạn 30/s của Telegram
+
+    summary = (
+        f"📊 Kết quả broadcast:\n"
+        f"✅ Thành công: {success}/{len(recipient_ids)}\n"
+        f"❌ Thất bại: {len(failed)}"
+    )
+    if failed:
+        fail_lines = []
+        for uid, err in failed[:20]:
+            short_err = err.split("\n")[0][:80]
+            fail_lines.append(f"  • {uid}: {short_err}")
+        if len(failed) > 20:
+            fail_lines.append(f"  ... và {len(failed) - 20} user khác.")
+        summary += "\n\nDanh sách fail:\n" + "\n".join(fail_lines)
+
+    await query.message.reply_text(summary)
+
+
 # ── /leaderboard (group only, auto-delete) ──────────────────────────────
 
 async def _delete_after(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1313,6 +1460,8 @@ async def post_init(application: Application) -> None:
         BotCommand("setprompt", "Sửa prompt chấm điểm"),
         BotCommand("resetprompt", "Reset prompt về mặc định"),
         BotCommand("setstart", "Set ngày bắt đầu thử thách"),
+        BotCommand("broadcast", "Gửi DM hàng loạt cho team"),
+        BotCommand("dm", "Gửi DM tới 1 user"),
     ]
     for admin_id in config.ADMIN_IDS:
         try:
@@ -1401,6 +1550,9 @@ def main() -> None:
     app.add_handler(CommandHandler("setprompt", cmd_setprompt))
     app.add_handler(CommandHandler("resetprompt", cmd_resetprompt))
     app.add_handler(CommandHandler("setstart", cmd_setstart))
+    app.add_handler(CommandHandler("broadcast", cmd_broadcast))
+    app.add_handler(CommandHandler("dm", cmd_dm))
+    app.add_handler(CallbackQueryHandler(broadcast_confirm_handler, pattern=r"^broadcast_(send|cancel)$"))
     app.add_handler(conv)
     app.add_handler(CommandHandler("leaderboard", cmd_leaderboard))
     app.add_handler(CallbackQueryHandler(button_handler))
