@@ -407,6 +407,19 @@ async def checkin_button_handler(update: Update, context: ContextTypes.DEFAULT_T
         )
         return ConversationHandler.END
 
+    # Khoá check-in sau deadline (hết hạn sau 17/05/2026)
+    checkin_deadline = date(2026, 5, 17)
+    today = datetime.now(ICT).date()
+    if today > checkin_deadline:
+        await _safe_edit(
+            query,
+            "⛔ Đã hết hạn check-in!\n\n"
+            "Thời gian check-in đã kết thúc vào ngày 17/05/2026.\n"
+            "Nếu cần hỗ trợ, vui lòng liên hệ admin.",
+            reply_markup=_main_menu_keyboard(registered=True),
+        )
+        return ConversationHandler.END
+
     context.user_data["checkin_team"] = team
 
     # Check challenge kết thúc + trùng ngay từ đầu
@@ -457,6 +470,18 @@ async def cmd_checkin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int
         await message.reply_text(
             "⚠️ Bạn chưa đăng ký team. Dùng /dangki trước nhé.",
             reply_markup=_main_menu_keyboard(registered=False),
+        )
+        return ConversationHandler.END
+
+    # Khoá check-in sau deadline (hết hạn sau 17/05/2026)
+    checkin_deadline = date(2026, 5, 17)
+    today = datetime.now(ICT).date()
+    if today > checkin_deadline:
+        await message.reply_text(
+            "⛔ Đã hết hạn check-in!\n\n"
+            "Thời gian check-in đã kết thúc vào ngày 17/05/2026.\n"
+            "Nếu cần hỗ trợ, vui lòng liên hệ admin.",
+            reply_markup=_main_menu_keyboard(registered=True),
         )
         return ConversationHandler.END
 
