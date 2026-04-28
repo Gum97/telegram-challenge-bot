@@ -1198,27 +1198,33 @@ async def cmd_setstart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 # ── /broadcast & /dm (admin → user DM) ──────────────────────────────────
 
-async def _send_dm_safe(bot, user_id: int, text: str) -> tuple[bool, str | None]:
-    """Gửi DM tới 1 user. Trả về (success, error_msg)."""
+async def _send_dm_safe(bot, user_id: int, text: str, photo_id: str | None = None) -> tuple[bool, str | None]:
+    """Gửi DM tới 1 user (text hoặc photo+caption). Trả về (success, error_msg)."""
     try:
-        await bot.send_message(chat_id=user_id, text=text)
+        if photo_id:
+            await bot.send_photo(chat_id=user_id, photo=photo_id, caption=text)
+        else:
+            await bot.send_message(chat_id=user_id, text=text)
         return True, None
     except Exception as e:
         return False, str(e)
 
 
 async def cmd_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/dm <user_id> <nội dung> — Gửi DM tới 1 user (admin only)."""
+    """/dm <user_id> <nội dung> — Gửi DM tới 1 user (admin only). Hỗ trợ kèm ảnh."""
     user = update.effective_user
     if not _is_admin(user.id):
         await update.message.reply_text("⛔ Chỉ admin mới dùng được lệnh này.")
         return
 
-    text = (update.message.text or "").strip()
-    parts = text.split(None, 2)
+    raw = (update.message.text or update.message.caption or "").strip()
+    photo_id = update.message.photo[-1].file_id if update.message.photo else None
+
+    parts = raw.split(None, 2)
     if len(parts) < 3:
         await update.message.reply_text(
             "Cách dùng: /dm <user_id> <nội dung>\n"
+            "Có thể kèm ảnh (caption: /dm <user_id> <nội dung>).\n"
             "Ví dụ: /dm 123456789 Hi bạn, link claim tiền: ...",
         )
         return
@@ -1230,7 +1236,7 @@ async def cmd_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         return
 
     content = parts[2]
-    ok, err = await _send_dm_safe(context.bot, target_id, content)
+    ok, err = await _send_dm_safe(context.bot, target_id, content, photo_id=photo_id)
     if ok:
         await update.message.reply_text(f"✅ Đã gửi DM tới user {target_id}.")
     else:
@@ -1238,17 +1244,20 @@ async def cmd_dm(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """/broadcast <nội dung> — Gửi DM hàng loạt tới mọi team đã đăng ký (admin only)."""
+    """/broadcast <nội dung> — Gửi DM hàng loạt tới mọi team đã đăng ký (admin only). Hỗ trợ kèm ảnh."""
     user = update.effective_user
     if not _is_admin(user.id):
         await update.message.reply_text("⛔ Chỉ admin mới dùng được lệnh này.")
         return
 
-    text = (update.message.text or "").strip()
-    parts = text.split(None, 1)
+    raw = (update.message.text or update.message.caption or "").strip()
+    photo_id = update.message.photo[-1].file_id if update.message.photo else None
+
+    parts = raw.split(None, 1)
     if len(parts) < 2:
         await update.message.reply_text(
-            "Cách dùng: /broadcast <nội dung>\n\n"
+            "Cách dùng: /broadcast <nội dung>\n"
+            "Có thể kèm ảnh (caption: /broadcast <nội dung>).\n\n"
             "Bot sẽ gửi DM tới TẤT CẢ user đã đăng ký team.\n"
             "Sẽ có preview + xác nhận trước khi gửi.",
         )
@@ -1265,23 +1274,33 @@ async def cmd_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     context.user_data["pending_broadcast"] = {
         "content": content,
+        "photo_id": photo_id,
         "recipient_ids": recipient_ids,
     }
-
-    preview = content[:1500]
-    if len(content) > 1500:
-        preview += "\n... (đã cắt cho preview)"
 
     kb = InlineKeyboardMarkup([[
         InlineKeyboardButton("✅ Gửi", callback_data="broadcast_send"),
         InlineKeyboardButton("❌ Huỷ", callback_data="broadcast_cancel"),
     ]])
-    await update.message.reply_text(
-        f"📣 Preview broadcast → {len(recipient_ids)} user:\n\n"
-        f"────────\n{preview}\n────────\n\n"
-        "Bấm \"Gửi\" để xác nhận.",
-        reply_markup=kb,
-    )
+
+    if photo_id:
+        # Gửi preview ảnh giống hệt user sẽ thấy, rồi message text + nút riêng
+        await update.message.reply_photo(photo=photo_id, caption=content[:1024])
+        await update.message.reply_text(
+            f"📣 Preview ở trên — sẽ gửi tới {len(recipient_ids)} user.\n"
+            "Bấm \"Gửi\" để xác nhận.",
+            reply_markup=kb,
+        )
+    else:
+        preview = content[:1500]
+        if len(content) > 1500:
+            preview += "\n... (đã cắt cho preview)"
+        await update.message.reply_text(
+            f"📣 Preview broadcast → {len(recipient_ids)} user:\n\n"
+            f"────────\n{preview}\n────────\n\n"
+            "Bấm \"Gửi\" để xác nhận.",
+            reply_markup=kb,
+        )
 
 
 async def broadcast_confirm_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1311,6 +1330,7 @@ async def broadcast_confirm_handler(update: Update, context: ContextTypes.DEFAUL
         return
 
     content = pending["content"]
+    photo_id = pending.get("photo_id")
     recipient_ids = pending["recipient_ids"]
     context.user_data.pop("pending_broadcast", None)
 
@@ -1319,7 +1339,7 @@ async def broadcast_confirm_handler(update: Update, context: ContextTypes.DEFAUL
     success = 0
     failed: list[tuple[int, str]] = []
     for uid in recipient_ids:
-        ok, err = await _send_dm_safe(context.bot, uid, content)
+        ok, err = await _send_dm_safe(context.bot, uid, content, photo_id=photo_id)
         if ok:
             success += 1
         else:
@@ -1552,6 +1572,8 @@ def main() -> None:
     app.add_handler(CommandHandler("setstart", cmd_setstart))
     app.add_handler(CommandHandler("broadcast", cmd_broadcast))
     app.add_handler(CommandHandler("dm", cmd_dm))
+    app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r"(?i)^/broadcast(\s|$)"), cmd_broadcast))
+    app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r"(?i)^/dm(\s|$)"), cmd_dm))
     app.add_handler(CallbackQueryHandler(broadcast_confirm_handler, pattern=r"^broadcast_(send|cancel)$"))
     app.add_handler(conv)
     app.add_handler(CommandHandler("leaderboard", cmd_leaderboard))
